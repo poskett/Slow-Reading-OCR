@@ -2,7 +2,7 @@
 
 A native Mac app that transcribes scanned pages and PDFs with the [olmOCR 2](https://huggingface.co/allenai/olmOCR-2-7B-1025) model. Drop in a PDF, an image or a folder of images and get a Markdown transcript. Everything runs on your own Mac: the model is downloaded once, and your documents are never sent anywhere.
 
-It is built for historians and other researchers who have scans, not a terminal.
+The app is designed for use by historians or other researchers who do not have prior experience with local open weight models.
 
 ## AI Declaration
 Code generated using Anthropic Claude (Opus 5.5).
@@ -53,4 +53,5 @@ This builds `build/Slow Reading.app`. The same code also builds a command-line t
 - olmOCR 2 model by [Ai2](https://allenai.org), based on Qwen2.5-VL: Apache 2.0. The app downloads MLX conversions published by [mlx-community](https://huggingface.co/mlx-community).
 - [MLX](https://github.com/ml-explore/mlx-swift) by Apple: MIT.
 - The sample page in the app is from an 1838 issue of the American Phrenological Journal.
-- Code generated using Anthropic Claude (Opus 5.5). Project developed by James Poskett (University of Warwick).
+- Code generated using Anthropic Claude (Opus 5.5).
+- Project developed by James Poskett (University of Warwick).
