@@ -1,0 +1,6 @@
+Transcribes scans with the olmOCR 2 model by Ai2, based on Qwen2.5-VL (Apache 2.0).
+Runs on this Mac with MLX by Apple (MIT).
+Code generated using Anthropic Claude (Opus 5.5) emitting 1.8kgCO₂ (Claude-Carbon).
+Project developed by James Poskett (University of Warwick).
+Application and source code (MIT).
+
