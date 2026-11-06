@@ -195,14 +195,8 @@ struct SetupView: View {
 
 struct AppTitle: View {
     var body: some View {
-        VStack(spacing: 3) {
-            Text(appName)
-                .font(.system(size: 30, weight: .semibold, design: .rounded))
-            Text("OCR for Researchers")
-                .font(.system(size: 15, weight: .regular, design: .rounded))
-                .foregroundStyle(.secondary)
-        }
-        .accessibilityElement(children: .combine)
+        Text("Slow Reading OCR")
+            .font(.system(size: 30, weight: .semibold, design: .rounded))
     }
 }
 

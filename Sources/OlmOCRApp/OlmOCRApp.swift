@@ -14,7 +14,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     static func confirmStopAndQuit() -> Bool {
         let alert = NSAlert()
         alert.messageText = "Stop transcribing and quit?"
-        alert.informativeText = "Finished pages are kept. Add the same files again later to carry on."
+        alert.informativeText = "Finished pages are kept."
         alert.addButton(withTitle: "Stop and Quit")
         alert.addButton(withTitle: "Keep Working")
         return alert.runModal() == .alertFirstButtonReturn
@@ -34,6 +34,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     func application(_ application: NSApplication, open urls: [URL]) {
         AppDelegate.model.queue.add(urls: urls)
+    }
+
+    func applicationWillTerminate(_ notification: Notification) {
+        AppDelegate.model.queue.saveQueue()
     }
 
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool {
@@ -156,6 +160,16 @@ struct OlmOCRApp: App {
                     }
                 }
                 .disabled(model.queue.selectedItem == nil)
+                Button("Clear Finished") {
+                    model.queue.clearFinished()
+                }
+                .disabled(!model.queue.hasFinished)
+                Button("Transcribe Again") {
+                    if let item = model.queue.selectedItem {
+                        model.queue.transcribeAgain(item)
+                    }
+                }
+                .disabled(model.queue.selectedItem?.status != .done)
             }
             CommandGroup(after: .toolbar) {
                 Divider()

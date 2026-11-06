@@ -15,6 +15,8 @@ struct DocumentDetailView: View {
     @State private var rangeText = ""
     @State private var rangeInvalid = false
     @State private var copied = false
+    @State private var scanProblem: ScanProblem?
+    @State private var transcriptMissing = false
 
     var pageIndex: Int {
         item.pages.firstIndex(of: item.selectedPage) ?? 0
@@ -52,8 +54,20 @@ struct DocumentDetailView: View {
                 }
             }
         }
-        .task(id: item.selectedPage) {
-            image = await pageImage(source: item.source, page: item.selectedPage)
+        .task {
+            await queue.loadResults(item)
+            scanProblem = await queue.prepareSource(item)
+        }
+        .task(id: "\(item.selectedPage)-\(item.source != nil)") {
+            if let source = item.source {
+                image = await pageImage(source: source, page: item.selectedPage)
+            }
+        }
+        .task(id: item.outputFiles) {
+            let file = item.outputFiles.first
+            transcriptMissing = await Task.detached(priority: .utility) {
+                file.map { !FileManager.default.fileExists(atPath: $0.path) } ?? false
+            }.value
         }
         .navigationTitle(item.name)
         .navigationSubtitle(subtitle)
@@ -71,7 +85,7 @@ struct DocumentDetailView: View {
                 .keyboardShortcut(.leftArrow, modifiers: .command)
                 .help("Previous page (⌘←)")
                 .accessibilityLabel("Previous page")
-                Text("Page \(item.source.kind == .folder ? "\(pageIndex + 1)" : "\(item.selectedPage)")")
+                Text("Page \(item.kind == .folder ? "\(pageIndex + 1)" : "\(item.selectedPage)")")
                     .monospacedDigit()
                     .frame(minWidth: 64)
                 Button {
@@ -91,9 +105,10 @@ struct DocumentDetailView: View {
                 rangeInvalid = false
                 showingRange = true
             } label: {
-                Text(item.pageRangeText.isEmpty ? (item.source.pageCount == 1 ? "1 page" : "All \(item.source.pageCount) pages") : "Pages \(item.pageRangeText)")
+                Text(item.pageRangeText.isEmpty ? (item.pageCount == 1 ? "1 page" : "All \(item.pageCount) pages") : "Pages \(item.pageRangeText)")
                     .font(.callout)
                     .foregroundStyle(.secondary)
+                    .fixedSize()
             }
             .buttonStyle(.borderless)
             .help(item.status == .waiting || item.status == .paused ? "Choose which pages to transcribe" : "")
@@ -105,62 +120,80 @@ struct DocumentDetailView: View {
             Spacer()
 
             if item.saveFailed {
-                Button {
-                    queue.saveElsewhere(item)
-                } label: {
-                    Label("Couldn’t save · Save To…", systemImage: "exclamationmark.triangle.fill")
-                }
-                .buttonStyle(.borderless)
-                .foregroundStyle(.red)
-                .help(saveErrorText)
+                Label("Couldn’t save", systemImage: "exclamationmark.triangle.fill")
+                    .font(.callout.weight(.medium))
+                    .foregroundStyle(.red)
+                    .fixedSize()
+                    .help(saveErrorText)
             }
 
             if let result, result.needsChecking {
                 Label("Check", systemImage: "exclamationmark.triangle.fill")
                     .font(.callout.weight(.medium))
                     .foregroundStyle(.orange)
+                    .fixedSize()
                     .help("Check this page against the scan" + (result.problem.map { ": \($0)" } ?? ""))
                     .accessibilityLabel("Check this page against the scan" + (result.problem.map { ": \($0)" } ?? ""))
             }
 
-            HStack(spacing: 8) {
-                if result?.response.naturalText != nil {
-                    Button {
-                        copyPage()
-                    } label: {
-                        Label(copied ? "Copied" : "Copy", systemImage: copied ? "checkmark" : "doc.on.doc")
-                            .frame(minWidth: 58)
-                    }
-                    .help("Copy this page’s text")
-                }
-                if let file = item.outputFiles.first {
-                    Button {
-                        NSWorkspace.shared.open(file)
-                    } label: {
-                        Label("Open Transcript", systemImage: "arrow.up.forward.square")
-                    }
-                    .help("Open \(file.lastPathComponent)")
-                } else if let file = currentPageFile {
-                    Button {
-                        NSWorkspace.shared.open(file)
-                    } label: {
-                        Label("Open Page", systemImage: "arrow.up.forward.square")
-                    }
-                    .help("Open \(file.lastPathComponent). The full transcript is saved when the document finishes.")
-                }
-                Button {
-                    NSWorkspace.shared.activateFileViewerSelecting([finderTarget])
-                } label: {
-                    Label("Open Finder", systemImage: "folder")
-                }
-                .help("Show \(finderTarget.lastPathComponent) in Finder")
+            ViewThatFits(in: .horizontal) {
+                actions(compact: false)
+                    .labelStyle(.titleAndIcon)
+                    .fixedSize()
+                actions(compact: true)
+                    .labelStyle(.iconOnly)
+                    .fixedSize()
             }
-            .labelStyle(.titleAndIcon)
-            .buttonStyle(.bordered)
-            .controlSize(.small)
+            .layoutPriority(1)
         }
         .padding(.horizontal, 16)
         .padding(.vertical, 9)
+    }
+
+    func actions(compact: Bool) -> some View {
+        HStack(spacing: 8) {
+            if item.saveFailed {
+                Button {
+                    queue.saveElsewhere(item)
+                } label: {
+                    Label("Save to Another Folder", systemImage: "folder.badge.plus")
+                }
+                .help(saveErrorText)
+            }
+            if result?.response.naturalText != nil {
+                Button {
+                    copyPage()
+                } label: {
+                    Label(copied ? "Copied" : "Copy", systemImage: copied ? "checkmark" : "doc.on.doc")
+                        .frame(minWidth: compact ? nil : 58)
+                }
+                .help("Copy this page’s text")
+            }
+            if let file = item.outputFiles.first {
+                Button {
+                    NSWorkspace.shared.open(file)
+                } label: {
+                    Label("Open Transcript", systemImage: "arrow.up.forward.square")
+                }
+                .disabled(transcriptMissing)
+                .help(transcriptMissing ? "The transcript has moved or been deleted" : "Open \(file.lastPathComponent)")
+            } else if let file = currentPageFile {
+                Button {
+                    NSWorkspace.shared.open(file)
+                } label: {
+                    Label("Open Page", systemImage: "arrow.up.forward.square")
+                }
+                .help("Open \(file.lastPathComponent). The full transcript is saved when the document finishes.")
+            }
+            Button {
+                NSWorkspace.shared.activateFileViewerSelecting([finderTarget])
+            } label: {
+                Label("Show in Finder", systemImage: "folder")
+            }
+            .help("Show \(finderTarget.lastPathComponent) in Finder")
+        }
+        .buttonStyle(.bordered)
+        .controlSize(.small)
     }
 
     var rangePopover: some View {
@@ -179,21 +212,22 @@ struct DocumentDetailView: View {
     func applyRange() {
         if item.applyPageRange(rangeText) {
             showingRange = false
+            queue.saveQueue()
         } else {
             rangeInvalid = true
         }
     }
 
     var currentPageFile: URL? {
-        guard let plan = item.plan, result != nil else {
+        guard let plan = item.plan, let source = item.source, result != nil else {
             return nil
         }
-        let url = pageFileURL(page: item.selectedPage, source: item.source, plan: plan)
+        let url = pageFileURL(page: item.selectedPage, source: source, plan: plan)
         return FileManager.default.fileExists(atPath: url.path) ? url : nil
     }
 
     var finderTarget: URL {
-        if let file = item.outputFiles.first {
+        if let file = item.outputFiles.first, !transcriptMissing {
             return file
         }
         if let file = currentPageFile {
@@ -246,7 +280,10 @@ struct DocumentDetailView: View {
                     .aspectRatio(contentMode: .fit)
                     .shadow(color: .black.opacity(0.18), radius: 6, y: 2)
                     .padding(20)
-                    .accessibilityLabel("Scan of page \(item.source.kind == .folder ? pageIndex + 1 : item.selectedPage)")
+                    .accessibilityLabel("Scan of page \(item.kind == .folder ? pageIndex + 1 : item.selectedPage)")
+            } else if let scanProblem, item.source == nil {
+                Text(scanProblem.rawValue)
+                    .foregroundStyle(.secondary)
             } else {
                 ProgressView()
                     .controlSize(.small)
@@ -297,6 +334,9 @@ struct DocumentDetailView: View {
                         .foregroundStyle(.secondary)
                         .multilineTextAlignment(.center)
                         .padding()
+                } else if item.status == .done && item.resultsLoaded {
+                    Text("Text not available")
+                        .foregroundStyle(.secondary)
                 } else {
                     Image(systemName: "text.alignleft")
                         .font(.system(size: 32, weight: .ultraLight))

@@ -122,9 +122,9 @@ public func outputBaseURL(for source: PageSource, outputFolder: URL?) -> URL {
     return folder.appendingPathComponent(name)
 }
 
-public struct OutputPlan: Sendable {
+public struct OutputPlan: Codable, Sendable {
     public var base: URL
-    public var pagesFolder: URL
+    public var folder: URL
     public var manifest: URL
     public var formats: [OutputFormat]
     public var model: String
@@ -134,11 +134,12 @@ public struct OutputPlan: Sendable {
 public func makeOutputPlan(
     source: PageSource, outputFolder: URL?, formats: [OutputFormat], model: String, modelRevision: String?
 ) -> OutputPlan {
-    let base = availableBase(for: source, outputFolder: outputFolder)
+    let placement = availableBase(for: source, outputFolder: outputFolder)
+    let base = transcriptBase(placement)
     return OutputPlan(
         base: base,
-        pagesFolder: URL(fileURLWithPath: base.path + "_pages", isDirectory: true),
-        manifest: URL(fileURLWithPath: base.path + "_manifest.csv"),
+        folder: transcriptFolder(placement),
+        manifest: manifestURL(base),
         formats: formats,
         model: model,
         modelRevision: modelRevision
@@ -157,14 +158,17 @@ func pageFileExtensions(_ formats: [OutputFormat]) -> [String] {
 }
 
 public func pageFileURL(page: Int, source: PageSource, plan: OutputPlan, fileExtension: String? = nil) -> URL {
-    let stem: String
+    var stem: String
     if source.kind == .folder {
-        stem = source.imageFiles[page - 1].deletingPathExtension().lastPathComponent
+        stem = source.pageStems[page - 1]
     } else {
         stem = String(format: "p%04d", page)
     }
+    if stem.lowercased() == plan.base.lastPathComponent.lowercased() {
+        stem += "_page"
+    }
     let ext = fileExtension ?? pageFileExtensions(plan.formats)[0]
-    return plan.pagesFolder.appendingPathComponent(stem).appendingPathExtension(ext)
+    return plan.folder.appendingPathComponent(stem).appendingPathExtension(ext)
 }
 
 public func writePageFile(_ result: PageResult, source: PageSource, plan: OutputPlan, onlyIfMissing: Bool = false) throws {
@@ -172,10 +176,7 @@ public func writePageFile(_ result: PageResult, source: PageSource, plan: Output
         return
     }
     let manager = FileManager.default
-    if !manager.fileExists(atPath: plan.pagesFolder.path) {
-        try manager.createDirectory(at: plan.pagesFolder, withIntermediateDirectories: true)
-        markAsOutput(plan.pagesFolder, source: source)
-    }
+    try prepareTranscriptFolder(plan, source: source)
     for ext in pageFileExtensions(plan.formats) {
         let url = pageFileURL(page: result.page, source: source, plan: plan, fileExtension: ext)
         if onlyIfMissing && manager.fileExists(atPath: url.path) {
@@ -270,8 +271,7 @@ public func writeManifest(_ results: [PageResult], source: PageSource, plan: Out
     guard plan.formats.contains(.manifest) else {
         return
     }
-    try FileManager.default.createDirectory(
-        at: plan.manifest.deletingLastPathComponent(), withIntermediateDirectories: true)
+    try prepareTranscriptFolder(plan, source: source)
     try manifestCSV(results, source: source, plan: plan).write(to: plan.manifest, atomically: true, encoding: .utf8)
     markAsOutput(plan.manifest, source: source)
 }
@@ -280,7 +280,7 @@ public func writeOutputs(results: [PageResult], run: DocumentRun, source: PageSo
     -> ExportedFiles
 {
     let base = plan.base
-    try FileManager.default.createDirectory(at: base.deletingLastPathComponent(), withIntermediateDirectories: true)
+    try prepareTranscriptFolder(plan, source: source)
     var written: [URL] = []
 
     for format in plan.formats {
@@ -299,7 +299,7 @@ public func writeOutputs(results: [PageResult], run: DocumentRun, source: PageSo
             for result in results {
                 try writePageFile(result, source: source, plan: plan)
             }
-            written.append(plan.pagesFolder)
+            written.append(plan.folder)
         case .jsonl:
             let url = base.appendingPathExtension("jsonl")
             if let record = dolmaRecord(results, run: run) {
@@ -337,27 +337,71 @@ func markAsOutput(_ url: URL, source: PageSource) {
     setxattr(url.path, outputMarker, value, value.count, 0, 0)
 }
 
-func outputCandidates(_ base: URL) -> [URL] {
-    [
-        base.appendingPathExtension("md"), base.appendingPathExtension("txt"), base.appendingPathExtension("jsonl"),
-        URL(fileURLWithPath: base.path + "_pages", isDirectory: true),
-        URL(fileURLWithPath: base.path + "_manifest.csv"),
-    ]
+func transcriptFolder(_ placement: URL) -> URL {
+    URL(fileURLWithPath: placement.path + "_transcript", isDirectory: true)
+}
+
+func transcriptBase(_ placement: URL) -> URL {
+    transcriptFolder(placement).appendingPathComponent(placement.lastPathComponent)
+}
+
+func manifestURL(_ base: URL) -> URL {
+    URL(fileURLWithPath: base.path + "_manifest.csv")
+}
+
+func wholeDocumentFiles(_ base: URL) -> [URL] {
+    ["md", "txt", "jsonl"].map { base.appendingPathExtension($0) }
+}
+
+func numberedPlacement(_ first: URL, number: Int) -> URL {
+    number == 1
+        ? first
+        : first.deletingLastPathComponent().appendingPathComponent("\(first.lastPathComponent) (\(number))")
+}
+
+func prepareTranscriptFolder(_ plan: OutputPlan, source: PageSource) throws {
+    guard !FileManager.default.fileExists(atPath: plan.folder.path) else {
+        return
+    }
+    try FileManager.default.createDirectory(at: plan.folder, withIntermediateDirectories: true)
+    markAsOutput(plan.folder, source: source)
+}
+
+func outputCandidates(_ placement: URL) -> [URL] {
+    let base = transcriptBase(placement)
+    return [transcriptFolder(placement), manifestURL(base)] + wholeDocumentFiles(base)
+}
+
+public func existingTranscripts(for source: PageSource, outputFolder: URL?) -> [URL] {
+    let manager = FileManager.default
+    let first = outputBaseURL(for: source, outputFolder: outputFolder)
+    var found = wholeDocumentFiles(first).filter { isOutput($0, of: source) }
+    var number = 1
+    while true {
+        let placement = numberedPlacement(first, number: number)
+        let folder = transcriptFolder(placement)
+        guard manager.fileExists(atPath: folder.path) else {
+            return found
+        }
+        if isOutput(folder, of: source) {
+            let files = wholeDocumentFiles(transcriptBase(placement)).filter { manager.fileExists(atPath: $0.path) }
+            found.insert(contentsOf: files, at: 0)
+        }
+        number += 1
+    }
 }
 
 public func availableBase(for source: PageSource, outputFolder: URL?) -> URL {
     let first = outputBaseURL(for: source, outputFolder: outputFolder)
-    let folder = first.deletingLastPathComponent()
-    let name = first.lastPathComponent
     let manager = FileManager.default
     var number = 1
     while true {
-        let base = number == 1 ? first : folder.appendingPathComponent("\(name) (\(number))")
-        let free = outputCandidates(base).allSatisfy { url in
+        let placement = numberedPlacement(first, number: number)
+        let free = outputCandidates(placement).allSatisfy { url in
             !manager.fileExists(atPath: url.path) || isOutput(url, of: source)
         }
         if free {
-            return base
+            return placement
         }
         number += 1
     }

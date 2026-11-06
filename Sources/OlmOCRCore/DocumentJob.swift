@@ -2,7 +2,7 @@
 import CryptoKit
 import Foundation
 
-public let appVersion = "1.0.0"
+public let appVersion = "1.1.0"
 
 public struct DocumentRun: Codable, Sendable {
     public var source: String

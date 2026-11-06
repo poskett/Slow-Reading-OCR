@@ -8,7 +8,7 @@ struct SettingsView: View {
     @AppStorage("outputFolder") private var outputFolder = ""
     @AppStorage("format.markdown") private var markdown = true
     @AppStorage("format.text") private var text = false
-    @AppStorage("format.pages") private var pages = false
+    @AppStorage("format.pages") private var pages = true
     @AppStorage("format.jsonl") private var jsonl = false
     @AppStorage("format.manifest") private var manifest = false
     @AppStorage("keepAwake") private var keepAwake = true

@@ -57,6 +57,7 @@ struct MainView: View {
 
     var sidebar: some View {
         List(selection: Bindable(queue).selection) {
+            Section("Queue") {
             ForEach(queue.items) { item in
                 DocumentRow(
                     item: item,
@@ -67,6 +68,11 @@ struct MainView: View {
                     .contextMenu {
                         Button("Show in Finder") {
                             NSWorkspace.shared.activateFileViewerSelecting([item.outputFiles.first ?? item.url])
+                        }
+                        if item.status == .done {
+                            Button("Transcribe Again") {
+                                queue.transcribeAgain(item)
+                            }
                         }
                         Divider()
                         Button("Remove", role: .destructive) {
@@ -91,7 +97,8 @@ struct MainView: View {
                     }
             }
             .onMove { from, to in
-                queue.items.move(fromOffsets: from, toOffset: to)
+                queue.moveItems(from: from, to: to)
+            }
             }
         }
         .listStyle(.sidebar)
@@ -123,11 +130,6 @@ struct MainView: View {
                         .accessibilityHidden(true)
                     Text("Attempt \(attempt.number) of \(attempt.total)")
                         .foregroundStyle(.orange)
-                }
-                if model.report?.powerSource == .battery {
-                    Image(systemName: "battery.50")
-                        .help("On battery")
-                        .accessibilityLabel("On battery")
                 }
             }
             .font(.callout)

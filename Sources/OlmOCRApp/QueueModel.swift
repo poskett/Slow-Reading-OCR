@@ -17,9 +17,13 @@ enum DocumentStatus: Equatable {
 @MainActor
 @Observable
 final class DocumentItem: Identifiable {
-    let id = UUID()
+    let id: UUID
     let url: URL
-    let source: PageSource
+    var source: PageSource?
+    var kind: SourceKind
+    var pageCount: Int
+    var sourceSize: Int64?
+    var sourceModified: Date?
     var pages: [Int]
     var pageRangeText = ""
     var status: DocumentStatus = .waiting
@@ -37,12 +41,80 @@ final class DocumentItem: Identifiable {
     var manifestStale = false
     var selectedPage: Int
     var followProgress = true
+    var redo = false
+    var resultsLoaded = true
+    var savedPagesDone = 0
+    var savedFlaggedPages: [Int] = []
 
     init(url: URL, source: PageSource) {
+        self.id = UUID()
         self.url = url
         self.source = source
+        self.kind = source.kind
+        self.pageCount = source.pageCount
+        let fingerprint = sourceFingerprint(url, kind: source.kind)
+        self.sourceSize = fingerprint.size
+        self.sourceModified = fingerprint.modified
         self.pages = Array(1...source.pageCount)
         self.selectedPage = 1
+    }
+
+    init(saved: SavedDocument) {
+        self.id = saved.id
+        self.url = URL(fileURLWithPath: saved.path)
+        self.kind = saved.kind
+        self.pageCount = saved.pageCount
+        self.sourceSize = saved.sourceSize
+        self.sourceModified = saved.sourceModified
+        self.pages = saved.pages
+        self.pageRangeText = saved.pageRangeText
+        self.outputFiles = saved.outputPaths.map { URL(fileURLWithPath: $0) }
+        self.plan = saved.plan
+        self.lastRun = saved.lastRun
+        self.saveFailed = saved.saveFailed
+        self.selectedPage = saved.selectedPage
+        self.redo = saved.redo
+        self.resultsLoaded = false
+        self.savedPagesDone = saved.pagesDone
+        self.savedFlaggedPages = saved.flaggedPages
+        switch saved.status {
+        case "waiting": self.status = .waiting
+        case "done": self.status = .done
+        case "failed": self.status = .failed(saved.failure ?? "")
+        default: self.status = .paused
+        }
+    }
+
+    var saved: SavedDocument {
+        var statusName = "paused"
+        var failure: String?
+        switch status {
+        case .waiting: statusName = "waiting"
+        case .done: statusName = "done"
+        case .failed(let message):
+            statusName = "failed"
+            failure = message
+        case .running, .paused: break
+        }
+        return SavedDocument(
+            id: id, path: url.path, kind: kind, pageCount: pageCount, sourceSize: sourceSize,
+            sourceModified: sourceModified, pages: pages, pageRangeText: pageRangeText, status: statusName,
+            failure: failure, pagesDone: pagesDone, flaggedPages: pagesNeedingChecking,
+            outputPaths: outputFiles.map(\.path), plan: plan, lastRun: lastRun, saveFailed: saveFailed,
+            selectedPage: selectedPage, redo: redo)
+    }
+
+    func adopt(_ opened: PageSource) {
+        source = opened
+        let fingerprint = sourceFingerprint(url, kind: opened.kind)
+        sourceSize = fingerprint.size
+        sourceModified = fingerprint.modified
+        if opened.pageCount != pageCount {
+            pageCount = opened.pageCount
+            pages = Array(1...opened.pageCount)
+            pageRangeText = ""
+            selectedPage = 1
+        }
     }
 
     var name: String {
@@ -50,11 +122,18 @@ final class DocumentItem: Identifiable {
     }
 
     var pagesDone: Int {
-        pages.filter { results[$0] != nil }.count
+        resultsLoaded ? pages.filter { results[$0] != nil }.count : savedPagesDone
     }
 
     var pagesNeedingChecking: [Int] {
-        pages.filter { results[$0]?.needsChecking == true }
+        resultsLoaded ? pages.filter { results[$0]?.needsChecking == true } : savedFlaggedPages
+    }
+
+    var isFailed: Bool {
+        if case .failed = status {
+            return true
+        }
+        return false
     }
 
     var fraction: Double {
@@ -62,7 +141,7 @@ final class DocumentItem: Identifiable {
     }
 
     var icon: String {
-        switch source.kind {
+        switch kind {
         case .pdf: return "doc.richtext"
         case .image: return "photo"
         case .folder: return "folder"
@@ -72,11 +151,11 @@ final class DocumentItem: Identifiable {
     func applyPageRange(_ text: String) -> Bool {
         let trimmed = text.trimmingCharacters(in: .whitespaces)
         if trimmed.isEmpty {
-            pages = Array(1...source.pageCount)
+            pages = Array(1...pageCount)
             pageRangeText = ""
             return true
         }
-        guard let parsed = parsePageRange(trimmed, pageCount: source.pageCount) else {
+        guard let parsed = parsePageRange(trimmed, pageCount: pageCount) else {
             return false
         }
         pages = parsed
@@ -107,13 +186,71 @@ final class QueueModel {
     private var activity: NSObjectProtocol?
     private var recentPageSeconds: [Double] = []
     private var continueAfterRemoval = false
+    private var settledBeforeRun: Set<DocumentItem.ID> = []
+
+    init() {
+        let saved = loadSavedQueue()
+        items = saved.documents.map { DocumentItem(saved: $0) }
+        selection = items.contains { $0.id == saved.selection } ? saved.selection : items.first?.id
+        removeUnusedResults(keeping: Set(items.map(\.id)))
+    }
+
+    func saveQueue() {
+        writeSavedQueue(SavedQueue(selection: selection, documents: items.map(\.saved)))
+    }
+
+    private func saveResults(_ item: DocumentItem) {
+        guard item.resultsLoaded, !item.results.isEmpty, items.contains(where: { $0.id == item.id }) else {
+            return
+        }
+        writeSavedResults(Array(item.results.values), id: item.id)
+    }
+
+    func loadResults(_ item: DocumentItem) async {
+        guard !item.resultsLoaded else {
+            return
+        }
+        let id = item.id
+        let loaded = await Task.detached(priority: .userInitiated) {
+            loadSavedResults(id)
+        }.value
+        guard !item.resultsLoaded else {
+            return
+        }
+        for result in loaded {
+            item.results[result.page] = result
+        }
+        item.resultsLoaded = true
+    }
+
+    func prepareSource(_ item: DocumentItem) async -> ScanProblem? {
+        if item.source != nil && !item.redo {
+            return nil
+        }
+        let url = item.url
+        let kind = item.kind
+        let pageCount = item.pageCount
+        let size = item.sourceSize
+        let modified = item.sourceModified
+        let opened = await Task.detached(priority: .userInitiated) {
+            openSavedSource(url: url, kind: kind, pageCount: pageCount, size: size, modified: modified)
+        }.value
+        if let source = opened.source, opened.problem == nil || item.redo {
+            item.adopt(source)
+            return nil
+        }
+        if item.source != nil && opened.problem == .locked {
+            return nil
+        }
+        return opened.problem
+    }
 
     var selectedItem: DocumentItem? {
         items.first { $0.id == selection }
     }
 
     var pagesRemaining: Int {
-        items.filter { $0.status != .done }.reduce(0) { $0 + $1.pages.count - $1.pagesDone }
+        items.filter { $0.status != .done && !$0.isFailed }.reduce(0) { $0 + $1.pages.count - $1.pagesDone }
     }
 
     var hasPausedItems: Bool {
@@ -136,10 +273,13 @@ final class QueueModel {
         }
         var candidates: [(url: URL, source: PageSource, hasText: Bool)] = []
         var problems: [String] = []
+        var alreadyQueued: DocumentItem?
         for url in expanded {
-            if items.contains(where: { $0.url.standardizedFileURL == url.standardizedFileURL })
-                || candidates.contains(where: { $0.url.standardizedFileURL == url.standardizedFileURL })
-            {
+            if let existing = items.first(where: { $0.url.standardizedFileURL == url.standardizedFileURL }) {
+                alreadyQueued = alreadyQueued ?? existing
+                continue
+            }
+            if candidates.contains(where: { $0.url.standardizedFileURL == url.standardizedFileURL }) {
                 continue
             }
             switch openSource(url) {
@@ -151,7 +291,21 @@ final class QueueModel {
                 continue
             }
         }
-        let withText = candidates.filter(\.hasText)
+        let outputFolder = OutputSettings.current().outputFolder
+        let transcribed = candidates.compactMap { candidate -> (url: URL, transcript: URL)? in
+            existingTranscripts(for: candidate.source, outputFolder: outputFolder).first
+                .map { (candidate.url, $0) }
+        }
+        var redoURLs: Set<URL> = []
+        if !transcribed.isEmpty {
+            if askAboutTranscribed(transcribed) {
+                redoURLs = Set(transcribed.map(\.url))
+            } else {
+                let skipped = Set(transcribed.map(\.url))
+                candidates.removeAll { skipped.contains($0.url) }
+            }
+        }
+        let withText = candidates.filter { $0.hasText && !redoURLs.contains($0.url) }
         var includeText = true
         if !withText.isEmpty {
             let title = withText.count == 1
@@ -163,19 +317,69 @@ final class QueueModel {
             includeText = confirm(title: title, message: message, button: "Transcribe")
         }
         var added: DocumentItem?
-        for candidate in candidates where includeText || !candidate.hasText {
+        for candidate in candidates
+        where includeText || !candidate.hasText || redoURLs.contains(candidate.url) {
             let item = DocumentItem(url: candidate.url, source: candidate.source)
+            item.redo = redoURLs.contains(candidate.url)
             items.append(item)
             added = added ?? item
         }
-        if let added {
-            selection = added.id
+        if let chosen = added ?? alreadyQueued {
+            selection = chosen.id
         }
+        saveQueue()
         if problems.count == 1 {
             showError(problems[0])
         } else if problems.count > 1 {
             showError("\(problems.count) items couldn’t be added", details: nameList(problems))
         }
+    }
+
+    private func askAboutTranscribed(_ transcribed: [(url: URL, transcript: URL)]) -> Bool {
+        let warning = "Transcribing again replaces the existing transcript, including any corrections you made to it."
+        if transcribed.count == 1 {
+            let choice = chooseAlert(
+                title: "“\(transcribed[0].url.lastPathComponent)” is already transcribed", message: warning,
+                buttons: ["Open Transcript", "Transcribe Again", "Cancel"])
+            if choice == 0 {
+                NSWorkspace.shared.open(transcribed[0].transcript)
+            }
+            return choice == 1
+        }
+        let names = nameList(transcribed.map { $0.url.lastPathComponent })
+        return chooseAlert(
+            title: "\(transcribed.count) documents are already transcribed", message: names + "\n\n" + warning,
+            buttons: ["Skip These", "Transcribe Again"]) == 1
+    }
+
+    func transcribeAgain(_ item: DocumentItem) {
+        if item.source == nil {
+            let opened = openSavedSource(
+                url: item.url, kind: item.kind, pageCount: item.pageCount, size: item.sourceSize,
+                modified: item.sourceModified)
+            guard opened.source != nil else {
+                showError((opened.problem ?? .missing).rawValue)
+                return
+            }
+        }
+        guard chooseAlert(
+            title: "Transcribe “\(item.name)” again?",
+            message: "This replaces the existing transcript, including any corrections you made to it.",
+            buttons: ["Transcribe Again", "Cancel"]) == 0
+        else {
+            return
+        }
+        removeSavedResults(item.id)
+        item.results = [:]
+        item.resultsLoaded = true
+        item.outputFiles = []
+        item.plan = nil
+        item.lastRun = nil
+        item.saveFailed = false
+        item.followProgress = true
+        item.redo = true
+        item.status = .waiting
+        saveQueue()
     }
 
     enum OpenResult {
@@ -215,6 +419,10 @@ final class QueueModel {
         guard let plan = item.plan, let run = item.lastRun else {
             return
         }
+        guard let source = item.source else {
+            showError(ScanProblem.missing.rawValue)
+            return
+        }
         let panel = NSOpenPanel()
         panel.canChooseDirectories = true
         panel.canChooseFiles = false
@@ -225,14 +433,15 @@ final class QueueModel {
             return
         }
         let newPlan = makeOutputPlan(
-            source: item.source, outputFolder: folder, formats: plan.formats,
+            source: source, outputFolder: folder, formats: plan.formats,
             model: plan.model, modelRevision: plan.modelRevision)
         let results = item.pages.compactMap { item.results[$0] }
         do {
-            item.outputFiles = try writeOutputs(results: results, run: run, source: item.source, plan: newPlan).files
+            item.outputFiles = try writeOutputs(results: results, run: run, source: source, plan: newPlan).files
             item.plan = newPlan
             item.saveFailed = false
             item.status = .done
+            saveQueue()
         } catch {
             showError("Couldn’t save there either", details: error.localizedDescription)
         }
@@ -244,9 +453,11 @@ final class QueueModel {
             pause()
         }
         items.removeAll { $0.id == item.id }
+        removeSavedResults(item.id)
         if selection == item.id {
             selection = items.first?.id
         }
+        saveQueue()
     }
 
     var hasFinished: Bool {
@@ -254,10 +465,14 @@ final class QueueModel {
     }
 
     func clearFinished() {
+        for item in items where item.status == .done {
+            removeSavedResults(item.id)
+        }
         items.removeAll { $0.status == .done }
         if !items.contains(where: { $0.id == selection }) {
             selection = items.first?.id
         }
+        saveQueue()
     }
 
     func moveSelected(by step: Int) {
@@ -274,6 +489,12 @@ final class QueueModel {
             return
         }
         items.swapAt(index, index + step)
+        saveQueue()
+    }
+
+    func moveItems(from offsets: IndexSet, to destination: Int) {
+        items.move(fromOffsets: offsets, toOffset: destination)
+        saveQueue()
     }
 
     func canMoveSelected(by step: Int) -> Bool {
@@ -290,6 +511,7 @@ final class QueueModel {
         for item in items where item.status == .paused {
             item.status = .waiting
         }
+        settledBeforeRun = Set(items.filter { $0.status == .done || $0.isFailed }.map(\.id))
         isRunning = true
         isPausing = false
         requestNotificationPermission()
@@ -332,8 +554,9 @@ final class QueueModel {
         if hasPausedItems && !continueAfterRemoval {
             announce("Paused")
         }
-        let finished = items.filter { $0.status == .done }.count
-        let failed = items.filter { if case .failed = $0.status { return true } else { return false } }.count
+        let settled = items.filter { !settledBeforeRun.contains($0.id) }
+        let finished = settled.filter { $0.status == .done }.count
+        let failed = settled.filter(\.isFailed).count
         if !hasWork && finished + failed > 0 && !NSApp.isActive {
             NSApp.requestUserAttention(.informationalRequest)
             var body = finished == 1 ? "1 document is ready." : "\(finished) documents are ready."
@@ -346,11 +569,27 @@ final class QueueModel {
 
     private func process(_ item: DocumentItem, engine: OCREngine, settings: OutputSettings) async {
         item.status = .running
-        let source = item.source
+        defer {
+            saveResults(item)
+            saveQueue()
+        }
+        await loadResults(item)
+        let problem = await prepareSource(item)
+        guard let source = item.source, problem == nil else {
+            item.status = .failed((problem ?? .missing).rawValue)
+            return
+        }
+        let modelName = await engine.modelName
+        let modelRevision = await engine.modelRevision
+        if item.redo {
+            try? FileManager.default.removeItem(
+                at: cacheDirectory(for: source, modelName: modelName + (modelRevision ?? "")))
+            item.redo = false
+        }
         let pages = item.pages
         let plan = makeOutputPlan(
             source: source, outputFolder: settings.outputFolder, formats: settings.formats,
-            model: await engine.modelName, modelRevision: await engine.modelRevision)
+            model: modelName, modelRevision: modelRevision)
         item.plan = plan
         item.tokenLimit = settings.tokenLimit
         let tokenLimit = settings.tokenLimit
@@ -382,7 +621,7 @@ final class QueueModel {
                         ? "\(item.name) finished"
                         : "\(item.name) finished. \(pagesText(flagged)) to check.")
             } catch {
-                removeIfEmpty(plan.pagesFolder)
+                removeIfEmpty(plan.folder)
                 item.saveFailed = true
                 item.status = .failed(error.localizedDescription)
                 announce("Couldn’t save \(item.name)")
@@ -423,8 +662,8 @@ final class QueueModel {
             item.pageStarted = nil
             item.attemptStarted = nil
             item.attemptTokens = 0
-            if let plan = item.plan {
-                try? writePageFile(result, source: item.source, plan: plan, onlyIfMissing: fromCache)
+            if let plan = item.plan, let source = item.source {
+                try? writePageFile(result, source: source, plan: plan, onlyIfMissing: fromCache)
                 if fromCache {
                     item.manifestStale = true
                 } else {
@@ -446,14 +685,14 @@ final class QueueModel {
     }
 
     private func saveProgress(_ item: DocumentItem) {
-        guard let plan = item.plan else {
+        guard let plan = item.plan, let source = item.source else {
             return
         }
         let results = item.pages.compactMap { item.results[$0] }
         guard !results.isEmpty else {
             return
         }
-        try? writeManifest(results, source: item.source, plan: plan)
+        try? writeManifest(results, source: source, plan: plan)
         item.manifestStale = false
     }
 
@@ -508,7 +747,8 @@ final class QueueModel {
         guard pagesRemaining > 0, let perPage = perPageSeconds else {
             return nil
         }
-        let seconds = items.filter { $0.status != .done }.reduce(0) { $0 + remainingSeconds(for: $1, perPage: perPage) }
+        let seconds = items.filter { $0.status != .done && !$0.isFailed }
+            .reduce(0) { $0 + remainingSeconds(for: $1, perPage: perPage) }
         return durationText(seconds)
     }
 
@@ -532,7 +772,7 @@ struct OutputSettings: Sendable {
         var formats: [OutputFormat] = []
         if defaults.object(forKey: "format.markdown") as? Bool ?? true { formats.append(.markdown) }
         if defaults.bool(forKey: "format.text") { formats.append(.text) }
-        if defaults.bool(forKey: "format.pages") { formats.append(.pages) }
+        if defaults.object(forKey: "format.pages") as? Bool ?? true { formats.append(.pages) }
         if defaults.bool(forKey: "format.jsonl") { formats.append(.jsonl) }
         if formats.isEmpty { formats = [.markdown] }
         if defaults.bool(forKey: "format.manifest") { formats.append(.manifest) }
@@ -551,12 +791,18 @@ struct OutputSettings: Sendable {
 
 @MainActor
 func confirm(title: String, message: String, button: String) -> Bool {
+    chooseAlert(title: title, message: message, buttons: [button, "Skip"]) == 0
+}
+
+@MainActor
+func chooseAlert(title: String, message: String, buttons: [String]) -> Int {
     let alert = NSAlert()
     alert.messageText = title
     alert.informativeText = message
-    alert.addButton(withTitle: button)
-    alert.addButton(withTitle: "Skip")
-    return alert.runModal() == .alertFirstButtonReturn
+    for button in buttons {
+        alert.addButton(withTitle: button)
+    }
+    return alert.runModal().rawValue - NSApplication.ModalResponse.alertFirstButtonReturn.rawValue
 }
 
 @MainActor

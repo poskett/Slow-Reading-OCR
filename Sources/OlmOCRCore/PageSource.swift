@@ -44,6 +44,7 @@ public final class PageSource: @unchecked Sendable {
     private let pdf: PDFDocument?
     private let imageSource: CGImageSource?
     public let imageFiles: [URL]
+    public let pageStems: [String]
 
     public static let supportedExtensions: Set<String> = [
         "pdf", "png", "jpg", "jpeg", "tif", "tiff", "jp2", "j2k", "jpf", "heic", "heif", "gif", "bmp", "webp",
@@ -62,10 +63,12 @@ public final class PageSource: @unchecked Sendable {
             self.pdf = nil
             self.imageSource = nil
             self.imageFiles = files
+            self.pageStems = PageSource.uniqueStems(files, reserved: url.lastPathComponent)
             self.pageCount = files.count
             return
         }
         self.imageFiles = []
+        self.pageStems = []
         let ext = url.pathExtension.lowercased()
         guard PageSource.supportedExtensions.contains(ext) else {
             throw PageSourceError.unsupported(url)
@@ -152,6 +155,30 @@ public final class PageSource: @unchecked Sendable {
         return entries
             .filter { supportedExtensions.contains($0.pathExtension.lowercased()) && $0.pathExtension.lowercased() != "pdf" }
             .sorted { $0.lastPathComponent.localizedStandardCompare($1.lastPathComponent) == .orderedAscending }
+    }
+
+    static func uniqueStems(_ files: [URL], reserved: String) -> [String] {
+        let stems = files.map { $0.deletingPathExtension().lastPathComponent }
+        var counts: [String: Int] = [:]
+        for stem in stems {
+            counts[stem.lowercased(), default: 0] += 1
+        }
+        var used: Set<String> = [reserved.lowercased()]
+        var unique: [String] = []
+        for (file, stem) in zip(files, stems) {
+            var name = counts[stem.lowercased()] == 1 ? stem : file.lastPathComponent
+            if name.lowercased() == reserved.lowercased() {
+                name += "_page"
+            }
+            let first = name
+            var number = 2
+            while !used.insert(name.lowercased()).inserted {
+                name = "\(first)_\(number)"
+                number += 1
+            }
+            unique.append(name)
+        }
+        return unique
     }
 
     private func renderPDFPage(_ page: Int, longestSide: CGFloat) throws -> CIImage {
