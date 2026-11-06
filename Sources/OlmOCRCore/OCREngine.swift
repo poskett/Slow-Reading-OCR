@@ -343,14 +343,14 @@ public actor OCREngine {
                     isTable: false, isDiagram: false, naturalText: fallbackText),
                 inputTokens: 0, outputTokens: 0, attempts: maxAttempts, rotation: 0, temperature: 0,
                 isFallback: true, isValid: true, needsChecking: true,
-                problem: "olmOCR could not read this page; the PDF's own embedded text was used instead.",
+                problem: "OCR could not read this page; the PDF's own embedded text was used instead.",
                 seconds: Date().timeIntervalSince(start)
             )
         }
         if var last = lastResult {
             last.needsChecking = true
             last.isFallback = false
-            last.problem = last.problem ?? "olmOCR could not read this page reliably."
+            last.problem = last.problem ?? "OCR could not read this page reliably."
             last.seconds = Date().timeIntervalSince(start)
             return last
         }
@@ -361,7 +361,7 @@ public actor OCREngine {
                 isTable: false, isDiagram: false, naturalText: nil),
             inputTokens: 0, outputTokens: 0, attempts: maxAttempts, rotation: 0, temperature: 0,
             isFallback: true, isValid: false, needsChecking: true,
-            problem: "olmOCR could not read this page.",
+            problem: "OCR could not read this page.",
             seconds: Date().timeIntervalSince(start)
         )
     }

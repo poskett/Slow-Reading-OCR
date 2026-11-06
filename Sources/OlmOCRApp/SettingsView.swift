@@ -62,11 +62,11 @@ struct SettingsView: View {
                 Picker("Page length limit", selection: $tokenLimit) {
                     Text("4,000 tokens").tag(4000)
                     Text("6,000 tokens").tag(6000)
-                    Text("8,000 tokens (olmOCR default)").tag(8000)
+                    Text("8,000 tokens (model default)").tag(8000)
                 }
                 .help("Stops a page that runs on too long, which usually means the model is repeating itself. Raise it if very dense pages, such as indexes, come back flagged as cut off.")
                 Toggle("Stop pages that repeat themselves", isOn: $stopOnRepetition)
-                    .help("Stops an attempt as soon as the model starts repeating the same text over and over, then tries again. Saves minutes on difficult pages. Turn off to match olmOCR exactly.")
+                    .help("Stops an attempt as soon as the model starts repeating the same text over and over, then tries again. Saves minutes on difficult pages. Turn off to let every attempt run to the end.")
             }
 
             Section("Storage") {

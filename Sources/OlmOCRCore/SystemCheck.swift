@@ -53,6 +53,8 @@ public enum ModelTier: String, Codable, CaseIterable, Sendable {
     }
 }
 
+let compactRecommendedBelowBytes: Int64 = 9 * 1_073_741_824
+
 public enum PowerSource: String, Sendable {
     case mains
     case battery
@@ -72,10 +74,10 @@ public struct SystemReport: Sendable {
     public var powerSource: PowerSource
 
     public var recommendedTier: ModelTier? {
-        guard isAppleSilicon else {
-            return nil
+        if availableMemory < compactRecommendedBelowBytes && supportedTiers.contains(.compact) {
+            return .compact
         }
-        return ModelTier.allCases.first { gpuWorkingSetLimit >= $0.requiredWorkingSetBytes }
+        return supportedTiers.first
     }
 
     public var supportedTiers: [ModelTier] {
@@ -90,9 +92,9 @@ public struct SystemReport: Sendable {
             return "Slow Reading needs a Mac with Apple silicon (M1 or later). This Mac has an Intel processor."
         }
         if isTranslated {
-            return "olmOCR is running under Rosetta. Quit it, choose the app in Finder, select File > Get Info, and untick “Open using Rosetta”."
+            return "Slow Reading is running under Rosetta. Quit it, choose the app in Finder, select File > Get Info, and untick “Open using Rosetta”."
         }
-        if recommendedTier == nil {
+        if supportedTiers.isEmpty {
             return "This Mac has \(formatBytes(physicalMemory)) of memory. Slow Reading needs at least 16 GB to run the model."
         }
         return nil
@@ -102,13 +104,13 @@ public struct SystemReport: Sendable {
         var messages: [String] = []
         if availableMemory < tier.peakMemoryBytes {
             messages.append(
-                "Only \(formatBytes(availableMemory)) of memory is free right now. Closing other apps (especially web browsers) will make olmOCR faster and steadier.")
+                "Only \(formatBytes(availableMemory)) of memory is free right now. Closing other apps (especially web browsers) will make OCR faster and more stable.")
         }
         if thermalState == .serious || thermalState == .critical {
-            messages.append("This Mac is hot. olmOCR will run slowly until it cools down.")
+            messages.append("This Mac is hot. OCR will run slowly until it cools down.")
         }
         if powerSource == .battery {
-            messages.append("This Mac is on battery. olmOCR uses a lot of power, so plug in for long jobs.")
+            messages.append("This Mac is on battery. OCR uses a lot of power, so plug in for long jobs.")
         }
         return messages
     }
@@ -236,7 +238,7 @@ public func checkSystem() -> SystemReport {
         isTranslated: sysctlInt("sysctl.proc_translated") == 1,
         physicalMemory: simulatedGigabytes("SLOWREADING_SIMULATE_RAM_GB") ?? Int64(ProcessInfo.processInfo.physicalMemory),
         gpuWorkingSetLimit: gpuWorkingSetBytes(),
-        availableMemory: availableMemoryBytes(),
+        availableMemory: simulatedGigabytes("SLOWREADING_SIMULATE_FREE_GB") ?? availableMemoryBytes(),
         freeDiskSpace: freeDiskBytes(at: ModelStore.modelsDirectory),
         macOSVersion: "\(version.majorVersion).\(version.minorVersion).\(version.patchVersion)",
         thermalState: ProcessInfo.processInfo.thermalState,

@@ -5,7 +5,7 @@ import OlmOCRCore
 let usage = """
     usage: olmocr [options] <pdf, image or folder of images> ...
 
-      --model <full|compact|folder>  model to use (default: the one recommended for this Mac)
+      --model <full|compact|folder>  model to use (default: the best one this Mac supports)
       --pages <range>                e.g. 1-5,9 (default: all pages)
       --out <folder>                 where to write results (default: next to each source)
       --format <list>                markdown,text,pages,jsonl,manifest (default: markdown)
@@ -69,7 +69,7 @@ if arguments.first == "--download" {
     return value
 }
 
-let modelChoice = option("--model") ?? checkSystem().recommendedTier?.rawValue ?? "compact"
+let modelChoice = option("--model") ?? checkSystem().supportedTiers.first?.rawValue ?? "compact"
 let pageRange = option("--pages")
 let outputFolder = option("--out").map { URL(fileURLWithPath: $0, isDirectory: true) }
 let imageFolder = option("--save-images").map { URL(fileURLWithPath: $0, isDirectory: true) }

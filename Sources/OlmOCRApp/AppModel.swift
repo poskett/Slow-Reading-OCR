@@ -144,7 +144,7 @@ final class AppModel {
         defaults.set(tier.rawValue, forKey: "selectedTier")
         phase = .downloading
         downloadProgress = nil
-        beginActivity("Downloading the olmOCR model")
+        beginActivity("Downloading the OCR model")
         setupTask = Task {
             do {
                 let folder = try await downloadModel(tier, repair: repair) { progress in
