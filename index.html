@@ -1,0 +1,210 @@
+<!-- Declaration: Code generated using Anthropic Claude (Sonnet 5.5) -->
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Slow Reading: OCR for Researchers</title>
+<meta name="description" content="A free Mac app that transcribes scanned pages and PDFs into text. It runs on your own Mac, so your documents stay private.">
+<link rel="icon" href="images/icon.png">
+<style>
+:root {
+  --ink: #1f1d1a;
+  --muted: #6b665e;
+  --paper: #faf7f1;
+  --card: #ffffff;
+  --line: #e4ddd0;
+  --accent: #b5382a;
+}
+* { box-sizing: border-box; }
+body {
+  margin: 0;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
+  color: var(--ink);
+  background: var(--paper);
+  line-height: 1.6;
+  font-size: 18px;
+}
+.wrap { max-width: 880px; margin: 0 auto; padding: 0 24px; }
+header { text-align: center; padding: 64px 0 32px; }
+header img.icon { width: 128px; height: 128px; }
+h1 { font-family: Georgia, "Times New Roman", serif; font-size: 3rem; margin: 16px 0 4px; letter-spacing: -0.01em; }
+.subtitle { font-family: Georgia, "Times New Roman", serif; font-size: 1.6rem; color: var(--accent); margin: 0 0 16px; }
+.tagline { font-size: 1.3rem; color: var(--muted); margin: 0 auto 28px; max-width: 560px; }
+.button {
+  display: inline-block;
+  background: var(--accent);
+  color: #fff;
+  text-decoration: none;
+  font-weight: 600;
+  padding: 14px 32px;
+  border-radius: 10px;
+  font-size: 1.1rem;
+}
+.button:hover { background: #983022; }
+.small { color: var(--muted); font-size: 0.9rem; margin-top: 12px; }
+.shot { display: block; width: 100%; max-width: 760px; margin: 40px auto 0; border-radius: 12px; box-shadow: 0 12px 40px rgba(0,0,0,0.18); }
+section { padding: 48px 0 8px; }
+h2 { font-family: Georgia, "Times New Roman", serif; font-size: 1.8rem; margin: 0 0 8px; }
+.lead { color: var(--muted); margin: 0 0 24px; }
+.grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 16px; }
+.card { background: var(--card); border: 1px solid var(--line); border-radius: 12px; padding: 20px 22px; }
+.card h3 { margin: 0 0 6px; font-size: 1.1rem; }
+.card p { margin: 0; font-size: 0.98rem; color: var(--muted); }
+ol.steps { padding-left: 1.2em; }
+ol.steps li { margin-bottom: 8px; }
+.shots { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 20px; margin-top: 8px; }
+.shots figure { margin: 0; }
+.shots img { width: 100%; cursor: zoom-in; border-radius: 10px; box-shadow: 0 6px 24px rgba(0,0,0,0.15); }
+.shots figcaption { color: var(--muted); font-size: 0.9rem; margin-top: 8px; text-align: center; }
+table { width: 100%; border-collapse: collapse; background: var(--card); border: 1px solid var(--line); border-radius: 12px; overflow: hidden; }
+th, td { text-align: left; padding: 12px 16px; border-bottom: 1px solid var(--line); font-size: 1rem; }
+th { background: #f2ece0; font-weight: 600; }
+tr:last-child td { border-bottom: none; }
+.note { color: var(--muted); font-size: 0.9rem; margin-top: 12px; }
+.warn { background: #fff4e0; border: 1px solid #ecd2a0; border-radius: 12px; padding: 16px 20px; font-size: 0.98rem; }
+dialog { border: none; padding: 0; background: transparent; color: var(--ink); max-width: 100vw; max-height: 100vh; overflow: visible; outline: none; }
+dialog[open] { animation: fade 0.18s ease-out; }
+dialog::backdrop { background: rgba(250, 247, 241, 0.94); backdrop-filter: blur(6px); }
+dialog figure { margin: 0; text-align: center; }
+dialog img { display: block; width: min(880px, 90vw); max-height: 76vh; object-fit: contain; border-radius: 12px; box-shadow: 0 16px 48px rgba(0,0,0,0.22); }
+dialog figcaption { font-family: Georgia, "Times New Roman", serif; font-size: 1.25rem; margin-top: 20px; }
+dialog .close { position: fixed; top: 20px; right: 24px; border: none; background: none; font-size: 2.2rem; line-height: 1; color: var(--muted); cursor: pointer; }
+dialog .close:hover { color: var(--accent); }
+dialog .close:focus { outline: none; }
+@keyframes fade { from { opacity: 0; } to { opacity: 1; } }
+footer { text-align: center; color: var(--muted); font-size: 0.9rem; padding: 56px 0 48px; }
+a, a:visited { color: var(--accent); }
+a:hover { color: #983022; }
+footer a, footer a:visited, .note a, .note a:visited, .small a, .small a:visited { color: var(--muted); }
+footer a:hover, .note a:hover, .small a:hover { color: var(--ink); }
+.button, .button:visited, .button:hover { color: #fff; }
+</style>
+</head>
+<body>
+
+<header class="wrap">
+  <img class="icon" src="images/icon.png" alt="Slow Reading app icon: a tortoise on a page of text">
+  <h1>Slow Reading OCR</h1>
+  <p class="tagline">Machine Learning OCR. Free, private, and on your own Mac.</p>
+  <a class="button" href="https://github.com/poskett/Slow-Reading-OCR/releases/latest" id="download">Download for Mac</a>
+  <p class="small">Version 1.1.1 · Needs a Mac with Apple Silicon (M1 or later), macOS 14+ and 16 GB of memory.</p>
+  <img class="shot" src="images/result.png" alt="Slow Reading showing a scanned journal page next to its transcription">
+</header>
+
+<main class="wrap">
+
+  <section>
+    <h2>What it does</h2>
+    <p class="lead">Drop in a PDF, a photo, or a folder of scans. Press Start. You get a text file of the transcription, saved in a folder next to the original.</p>
+    <div class="shots">
+      <figure>
+        <img src="images/drop.png" alt="The empty Slow Reading window with a box to drop files into">
+        <figcaption>1. Drop in your scans</figcaption>
+      </figure>
+      <figure>
+        <img src="images/result.png" alt="A scanned page on the left and its transcription on the right">
+        <figcaption>2. Read the result beside the original</figcaption>
+      </figure>
+      <figure>
+        <img src="images/saved.png" alt="The saved transcription open as a Markdown text file">
+        <figcaption>3. Saves a plain text or Markdown file</figcaption>
+      </figure>
+    </div>
+  </section>
+
+  <section>
+    <h2>Why it is different</h2>
+    <p class="lead">Use your own computer. Don't send any data to AI companies.</p>
+    <div class="grid">
+      <div class="card">
+        <h3>Runs on your Mac</h3>
+        <p>The transcription is done on your own computer. After the first download, it works with no internet connection.</p>
+      </div>
+      <div class="card">
+        <h3>Private</h3>
+        <p>Your scans never leave your Mac. There is no account, no upload and no tracking.</p>
+      </div>
+      <div class="card">
+        <h3>Free</h3>
+        <p>No subscription, no per-page fees and no page limits. Transcribe 10 pages or 10,000 pages. The price is the same: nothing.</p>
+      </div>
+      <div class="card">
+        <h3>Open weights</h3>
+        <p>It uses <a href="https://huggingface.co/allenai/olmOCR-2-7B-1025">olmOCR 2</a> from Ai2, an openly published model (Apache 2.0). Anyone can inspect it, and the app's code is open source too.</p>
+      </div>
+      <div class="card">
+        <h3>No data centres</h3>
+        <p>It runs on your Mac's own chip, uses minimal energy, and your scans are never uploaded.</p>
+      </div>
+      <div class="card">
+        <h3>Made for historians</h3>
+        <p>Handles old print, handwriting, columns, footnotes and multi-page PDFs.</p>
+      </div>
+    </div>
+  </section>
+
+  <section>
+    <h2>What 1,000 pages costs</h2>
+    <p class="lead">An estimate for a typical printed page on a Mac with an M2 Max chip.</p>
+    <table>
+      <tr><th>Time</th><td>about 8 hours (roughly 30 seconds a page).</td></tr>
+      <tr><th>Money</th><td>£0 for the app. About 5p of electricity.</td></tr>
+      <tr><th>Energy</th><td>about 0.18 kWh</td></tr>
+      <tr><th>Carbon</th><td>about 24 g CO₂e, roughly the energy of boiling a full kettle once</td></tr>
+    </table>
+    <p class="note">How these were worked out: 1,000 pages × 30 seconds ≈ 8.3 hours. Measured on a M2 Max with Apple's powermetrics tool, the chip (CPU and GPU) averaged about 22W while transcribing ≈ 0.18 kWh. <a href="https://www.gov.uk/government/publications/greenhouse-gas-reporting-conversion-factors-2026">UK figures</a>: 0.131 kg CO₂e per kWh and 26p per kWh. A full <a href="https://ao.com/athome/technology/tech-advice/how-much-power-does-a-kettle-use">kettle</a> uses roughly 0.17 to 0.23 kWh. Speed varies with your Mac and the page. Your own electricity price and local grid will change the figures.</p>
+  </section>
+
+  <section>
+    <h2>Getting started</h2>
+    <ol class="steps">
+      <li>Download the app, unzip it, and drag <strong>Slow Reading</strong> into your Applications folder.</li>
+      <li>On first launch the app downloads its model once (about 5 GB). After that it works offline.</li>
+      <li>Drop in your files and press Start.</li>
+    </ol>
+  </section>
+
+  <section>
+    <div class="warn">
+      <strong>Check the output.</strong> The app can make mistakes, and because it is a language model it may occasionally "correct" a word that was actually printed. For quotation or analysis, always check against the page image.
+    </div>
+  </section>
+
+</main>
+
+<footer class="wrap">
+  <p>Model: olmOCR 2 by <a href="https://allenai.org">Ai2</a>, based on Qwen2.5-VL (Apache 2.0). Runs with <a href="https://github.com/ml-explore/mlx-swift">MLX</a> by Apple (MIT).</p>
+  <p>Code generated using Anthropic Claude (Opus 5.5). Carbon cost for all prompts to create app: 1.8kgCO₂e (<a href="https://github.com/gwittebolle/claude-carbon">Claude Carbon</a>).</p><p>Project developed by <a href="https://poskett.com/">James Poskett</a>, University of Warwick. <a href="https://github.com/poskett/slow-reading-ocr">Source code on GitHub</a>.</p>
+</footer>
+
+<dialog id="viewer">
+  <button class="close" aria-label="Close" id="viewer-close">&times;</button>
+  <figure>
+    <img id="viewer-img" src="" alt="">
+    <figcaption id="viewer-caption"></figcaption>
+  </figure>
+</dialog>
+
+<script>
+var viewer = document.getElementById("viewer");
+var viewerImg = document.getElementById("viewer-img");
+var viewerCaption = document.getElementById("viewer-caption");
+document.querySelectorAll(".shots img").forEach(function (img) {
+  img.addEventListener("click", function () {
+    viewerImg.src = img.src;
+    viewerImg.alt = img.alt;
+    viewerCaption.textContent = img.parentElement.querySelector("figcaption").textContent;
+    viewer.showModal();
+  });
+});
+viewer.addEventListener("click", function () {
+  viewer.close();
+});
+document.getElementById("viewer-close").addEventListener("click", function () {
+  viewer.close();
+});
+</script>
+
+</body>
+</html>
