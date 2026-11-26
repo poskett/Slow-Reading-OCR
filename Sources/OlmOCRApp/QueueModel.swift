@@ -663,7 +663,11 @@ final class QueueModel {
             item.attemptStarted = nil
             item.attemptTokens = 0
             if let plan = item.plan, let source = item.source {
-                try? writePageFile(result, source: source, plan: plan, onlyIfMissing: fromCache)
+                do {
+                    try writePageFile(result, source: source, plan: plan, onlyIfMissing: fromCache)
+                } catch {
+                    NSLog("Slow Reading: could not write page %d of %@: %@", result.page, item.name, error.localizedDescription)
+                }
                 if fromCache {
                     item.manifestStale = true
                 } else {

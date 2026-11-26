@@ -98,6 +98,14 @@ public enum ModelStore {
         if !contents.contains(where: { $0.hasSuffix(".safetensors") }) {
             missing.append("model weights (.safetensors)")
         }
+        let indexURL = directory.appendingPathComponent("model.safetensors.index.json")
+        if let data = try? Data(contentsOf: indexURL),
+            let index = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+            let weightMap = index["weight_map"] as? [String: String]
+        {
+            let shards = Set(weightMap.values).sorted()
+            missing += shards.filter { !FileManager.default.fileExists(atPath: directory.appendingPathComponent($0).path) }
+        }
         if !missing.isEmpty {
             throw ModelStoreError.missingFiles(directory, missing)
         }

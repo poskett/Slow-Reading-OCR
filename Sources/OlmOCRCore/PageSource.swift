@@ -45,6 +45,8 @@ public final class PageSource: @unchecked Sendable {
     private let imageSource: CGImageSource?
     public let imageFiles: [URL]
     public let pageStems: [String]
+    private let imageFrames: [Int]
+    private let frameCounts: [Int]
 
     public static let supportedExtensions: Set<String> = [
         "pdf", "png", "jpg", "jpeg", "tif", "tiff", "jp2", "j2k", "jpf", "heic", "heif", "gif", "bmp", "webp",
@@ -59,16 +61,46 @@ public final class PageSource: @unchecked Sendable {
             guard !files.isEmpty else {
                 throw PageSourceError.noPages(url)
             }
+            let fileStems = PageSource.uniqueStems(files, reserved: url.lastPathComponent)
+            var pageFiles: [URL] = []
+            var frames: [Int] = []
+            var counts: [Int] = []
+            var stems: [String] = []
+            var used = Set(fileStems.map { $0.lowercased() })
+            for (file, stem) in zip(files, fileStems) {
+                let count = PageSource.frameCount(file)
+                for frame in 0..<count {
+                    pageFiles.append(file)
+                    frames.append(frame)
+                    counts.append(count)
+                    if count == 1 {
+                        stems.append(stem)
+                        continue
+                    }
+                    let first = "\(stem)_f\(frame + 1)"
+                    var name = first
+                    var number = 2
+                    while !used.insert(name.lowercased()).inserted {
+                        name = "\(first)_\(number)"
+                        number += 1
+                    }
+                    stems.append(name)
+                }
+            }
             self.kind = .folder
             self.pdf = nil
             self.imageSource = nil
-            self.imageFiles = files
-            self.pageStems = PageSource.uniqueStems(files, reserved: url.lastPathComponent)
-            self.pageCount = files.count
+            self.imageFiles = pageFiles
+            self.imageFrames = frames
+            self.frameCounts = counts
+            self.pageStems = stems
+            self.pageCount = pageFiles.count
             return
         }
         self.imageFiles = []
         self.pageStems = []
+        self.imageFrames = []
+        self.frameCounts = []
         let ext = url.pathExtension.lowercased()
         guard PageSource.supportedExtensions.contains(ext) else {
             throw PageSourceError.unsupported(url)
@@ -141,12 +173,28 @@ public final class PageSource: @unchecked Sendable {
             guard let source = CGImageSourceCreateWithURL(imageFiles[page - 1] as CFURL, nil) else {
                 throw PageSourceError.renderFailed(page)
             }
-            return try renderImage(from: source, index: 0, page: page, longestSide: longestSide)
+            return try renderImage(from: source, index: imageFrames[page - 1], page: page, longestSide: longestSide)
         }
     }
 
     public func pageLabel(_ page: Int) -> String {
-        kind == .folder ? imageFiles[page - 1].lastPathComponent : "\(page)"
+        guard kind == .folder else {
+            return "\(page)"
+        }
+        let name = imageFiles[page - 1].lastPathComponent
+        if frameCounts[page - 1] > 1 {
+            return "\(name) (frame \(imageFrames[page - 1] + 1) of \(frameCounts[page - 1]))"
+        }
+        return name
+    }
+
+    static func frameCount(_ file: URL) -> Int {
+        guard ["tif", "tiff"].contains(file.pathExtension.lowercased()),
+            let source = CGImageSourceCreateWithURL(file as CFURL, nil)
+        else {
+            return 1
+        }
+        return max(CGImageSourceGetCount(source), 1)
     }
 
     public static func imageFiles(in folder: URL) -> [URL] {
@@ -190,6 +238,9 @@ public final class PageSource: @unchecked Sendable {
         let pageWidth = quarterTurns % 2 == 0 ? box.width : box.height
         let pageHeight = quarterTurns % 2 == 0 ? box.height : box.width
         let scale = longestSide / max(pageWidth, pageHeight)
+        guard pageWidth > 0, pageHeight > 0, scale.isFinite else {
+            throw PageSourceError.renderFailed(page)
+        }
         let pixelWidth = Int((pageWidth * scale).rounded())
         let pixelHeight = Int((pageHeight * scale).rounded())
 
@@ -232,14 +283,17 @@ public final class PageSource: @unchecked Sendable {
 
 public func resize(_ image: CIImage, longestSide: CGFloat) -> CIImage {
     let longest = max(image.extent.width, image.extent.height)
-    if longest == longestSide {
+    if longest == longestSide || longest <= 0 || !longest.isFinite {
         return image
     }
-    let filter = CIFilter(name: "CILanczosScaleTransform")!
+    let scale = longestSide / longest
+    guard let filter = CIFilter(name: "CILanczosScaleTransform") else {
+        return image.transformed(by: CGAffineTransform(scaleX: scale, y: scale))
+    }
     filter.setValue(image, forKey: kCIInputImageKey)
-    filter.setValue(longestSide / longest, forKey: kCIInputScaleKey)
+    filter.setValue(scale, forKey: kCIInputScaleKey)
     filter.setValue(1.0, forKey: kCIInputAspectRatioKey)
-    return filter.outputImage!
+    return filter.outputImage ?? image.transformed(by: CGAffineTransform(scaleX: scale, y: scale))
 }
 
 public func rotateCounterClockwise(_ image: CIImage, degrees: Int) -> CIImage {

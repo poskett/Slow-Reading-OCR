@@ -53,8 +53,6 @@ public enum ModelTier: String, Codable, CaseIterable, Sendable {
     }
 }
 
-let compactRecommendedBelowBytes: Int64 = 9 * 1_073_741_824
-
 public enum PowerSource: String, Sendable {
     case mains
     case battery
@@ -74,10 +72,7 @@ public struct SystemReport: Sendable {
     public var powerSource: PowerSource
 
     public var recommendedTier: ModelTier? {
-        if availableMemory < compactRecommendedBelowBytes && supportedTiers.contains(.compact) {
-            return .compact
-        }
-        return supportedTiers.first
+        supportedTiers.first
     }
 
     public var supportedTiers: [ModelTier] {
@@ -94,6 +89,9 @@ public struct SystemReport: Sendable {
         if isTranslated {
             return "Slow Reading is running under Rosetta. Quit it, choose the app in Finder, select File > Get Info, and untick “Open using Rosetta”."
         }
+        if gpuWorkingSetLimit == 0 {
+            return "No Metal graphics device was found. This can happen when macOS runs in a virtual machine. Slow Reading needs the Mac’s own GPU."
+        }
         if supportedTiers.isEmpty {
             return "This Mac has \(formatBytes(physicalMemory)) of memory. Slow Reading needs at least 16 GB to run the model."
         }
@@ -103,8 +101,11 @@ public struct SystemReport: Sendable {
     public func warnings(for tier: ModelTier) -> [String] {
         var messages: [String] = []
         if availableMemory < tier.peakMemoryBytes {
-            messages.append(
-                "Only \(formatBytes(availableMemory)) of memory is free right now. Closing other apps (especially web browsers) will make OCR faster and more stable.")
+            var message = "Only \(formatBytes(availableMemory)) of memory is free right now. Closing other apps (especially web browsers) will make OCR faster and more stable."
+            if tier == .full && supportedTiers.contains(.compact) && availableMemory >= ModelTier.compact.peakMemoryBytes {
+                message += " Or choose the Compact model, which fits in the memory free now."
+            }
+            messages.append(message)
         }
         if thermalState == .serious || thermalState == .critical {
             messages.append("This Mac is hot. OCR will run slowly until it cools down.")
@@ -177,8 +178,7 @@ public func availableMemoryBytes() -> Int64 {
     }
     var pageSize: vm_size_t = 0
     host_page_size(mach_host_self(), &pageSize)
-    let pages = Int64(stats.free_count) + Int64(stats.inactive_count) + Int64(stats.purgeable_count)
-        + Int64(stats.speculative_count)
+    let pages = Int64(stats.free_count) + Int64(stats.inactive_count)
     return pages * Int64(pageSize)
 }
 
@@ -214,6 +214,9 @@ func simulatedGigabytes(_ name: String) -> Int64? {
 }
 
 public func gpuWorkingSetBytes() -> Int64 {
+    if let simulated = simulatedGigabytes("SLOWREADING_SIMULATE_GPU_GB") {
+        return simulated
+    }
     if let simulated = simulatedGigabytes("SLOWREADING_SIMULATE_RAM_GB") {
         return simulated * 2 / 3
     }

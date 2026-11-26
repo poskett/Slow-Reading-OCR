@@ -50,7 +50,7 @@ public func plainText(fromMarkdown markdown: String) -> String {
         (#"(?m)^>\s?"#, ""),
         (#"</?(?:table|thead|tbody|tr)[^>]*>"#, "\n"),
         (#"</t[hd]>"#, "\t"),
-        (#"<[^>]+>"#, ""),
+        (#"</?[A-Za-z][A-Za-z0-9]*(?:\s[^<>\n]*)?/?>"#, ""),
         (#"\n{3,}"#, "\n\n"),
     ]
     for (pattern, template) in replacements {
@@ -297,7 +297,7 @@ public func writeOutputs(results: [PageResult], run: DocumentRun, source: PageSo
             written.append(url)
         case .pages:
             for result in results {
-                try writePageFile(result, source: source, plan: plan)
+                try writePageFile(result, source: source, plan: plan, onlyIfMissing: true)
             }
             written.append(plan.folder)
         case .jsonl:

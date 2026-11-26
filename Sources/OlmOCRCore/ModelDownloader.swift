@@ -155,7 +155,9 @@ final class ChunkDownloader: NSObject, URLSessionDataDelegate, @unchecked Sendab
 
     func urlSession(_ session: URLSession, task: URLSessionTask, didCompleteWithError error: Error?) {
         try? handle?.close()
-        if let error {
+        if status != 0 && status != 200 && status != 206 {
+            continuation?.resume(throwing: DownloadError.badResponse(fileName, status))
+        } else if let error {
             continuation?.resume(throwing: error)
         } else if status != 200 && status != 206 {
             continuation?.resume(throwing: DownloadError.badResponse(fileName, status))
@@ -245,6 +247,11 @@ func removeDamagedFiles(_ files: [RemoteFile], folder: URL) async throws {
         if let expected = file.sha256 {
             let actual = try await Task.detached(priority: .userInitiated) { try sha256OfFile(url) }.value
             if actual == expected {
+                continue
+            }
+        } else {
+            let size = (try? FileManager.default.attributesOfItem(atPath: url.path)[.size] as? NSNumber)?.int64Value
+            if size == file.size {
                 continue
             }
         }

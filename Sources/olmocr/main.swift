@@ -28,6 +28,19 @@ func tier(named name: String) -> ModelTier? {
     }
 }
 
+func printError(_ message: String) {
+    FileHandle.standardError.write(Data((message + "\n").utf8))
+}
+
+func fail(_ message: String) -> Never {
+    printError(message)
+    exit(1)
+}
+
+func fail(_ error: Error) -> Never {
+    fail("Error: \(error.localizedDescription)")
+}
+
 if arguments.first == "--check" {
     let report = checkSystem()
     print(report.diagnosticText)
@@ -50,13 +63,17 @@ if arguments.first == "--download" {
         exit(1)
     }
     print("Downloading \(tier.repo) to \(ModelStore.modelsDirectory.path)")
-    let folder = try await downloadModel(tier) { progress in
-        let remaining = progress.secondsRemaining.map { String(format: ", about %.0f min left", $0 / 60) } ?? ""
-        print(String(format: "  %5.1f%%  %@ of %@  %.1f MB/s%@  %@",
-            progress.fraction * 100, formatBytes(progress.bytesDone), formatBytes(progress.bytesTotal),
-            progress.bytesPerSecond / 1_000_000, remaining, progress.currentFile))
+    do {
+        let folder = try await downloadModel(tier) { progress in
+            let remaining = progress.secondsRemaining.map { String(format: ", about %.0f min left", $0 / 60) } ?? ""
+            print(String(format: "  %5.1f%%  %@ of %@  %.1f MB/s%@  %@",
+                progress.fraction * 100, formatBytes(progress.bytesDone), formatBytes(progress.bytesTotal),
+                progress.bytesPerSecond / 1_000_000, remaining, progress.currentFile))
+        }
+        print("Installed in \(folder.path)")
+    } catch {
+        fail(error)
     }
-    print("Installed in \(folder.path)")
     exit(0)
 }
 
@@ -69,7 +86,12 @@ if arguments.first == "--download" {
     return value
 }
 
-let modelChoice = option("--model") ?? checkSystem().supportedTiers.first?.rawValue ?? "compact"
+let report = checkSystem()
+if let problem = report.blockingProblem {
+    fail("Cannot run: \(problem)")
+}
+
+let modelChoice = option("--model") ?? report.recommendedTier?.rawValue ?? "compact"
 let pageRange = option("--pages")
 let outputFolder = option("--out").map { URL(fileURLWithPath: $0, isDirectory: true) }
 let imageFolder = option("--save-images").map { URL(fileURLWithPath: $0, isDirectory: true) }
@@ -87,16 +109,25 @@ guard !arguments.isEmpty, !formats.isEmpty else {
 var modelDirectory = URL(fileURLWithPath: modelChoice, isDirectory: true)
 if let chosenTier = tier(named: modelChoice) {
     guard let installed = installedModelDirectory(chosenTier) else {
-        print("The \(chosenTier.title) model is not installed. Run: olmocr --download \(chosenTier.rawValue)")
-        exit(1)
+        fail("The \(chosenTier.title) model is not installed. Run: olmocr --download \(chosenTier.rawValue)")
     }
     modelDirectory = installed
+    for warning in report.warnings(for: chosenTier) {
+        printError("Warning: \(warning)")
+    }
 }
 
 print("Loading model \(ModelStore.modelName(for: modelDirectory)) ...")
 let loadStart = Date()
-let engine = try await OCREngine.load(modelDirectory: modelDirectory)
+let engine: OCREngine
+do {
+    engine = try await OCREngine.load(modelDirectory: modelDirectory)
+} catch {
+    fail(error)
+}
 print(String(format: "Model loaded in %.1f s", Date().timeIntervalSince(loadStart)))
+
+var failures = 0
 
 for path in arguments {
     let url = URL(fileURLWithPath: path)
@@ -104,13 +135,15 @@ for path in arguments {
     do {
         source = try PageSource(url: url)
     } catch {
-        print("Skipping \(url.lastPathComponent): \(error.localizedDescription)")
+        printError("Skipping \(url.lastPathComponent): \(error.localizedDescription)")
+        failures += 1
         continue
     }
     let pages: [Int]
     if let pageRange {
         guard let parsed = parsePageRange(pageRange, pageCount: source.pageCount) else {
-            print("Skipping \(url.lastPathComponent): page range \(pageRange) does not fit its \(source.pageCount) pages.")
+            printError("Skipping \(url.lastPathComponent): page range \(pageRange) does not fit its \(source.pageCount) pages.")
+            failures += 1
             continue
         }
         pages = parsed
@@ -121,56 +154,67 @@ for path in arguments {
         print("Note: \(url.lastPathComponent) already contains a text layer; transcribing anyway.")
     }
 
-    if let imageFolder {
-        try FileManager.default.createDirectory(at: imageFolder, withIntermediateDirectories: true)
-        for page in pages {
-            let image = try source.render(page: page)
-            let name = url.deletingPathExtension().lastPathComponent + String(format: "_p%04d.png", page)
-            try savePNG(image, to: imageFolder.appendingPathComponent(name))
+    do {
+        if let imageFolder {
+            try FileManager.default.createDirectory(at: imageFolder, withIntermediateDirectories: true)
+            for page in pages {
+                let image = try source.render(page: page)
+                let name = url.deletingPathExtension().lastPathComponent + String(format: "_p%04d.png", page)
+                try savePNG(image, to: imageFolder.appendingPathComponent(name))
+            }
         }
-    }
 
-    print("\(url.lastPathComponent): \(pages.count) of \(source.pageCount) pages")
-    let plan = makeOutputPlan(
-        source: source, outputFolder: outputFolder, formats: formats,
-        model: await engine.modelName, modelRevision: await engine.modelRevision)
-    let (results, run) = try await transcribeDocument(
-        engine: engine, source: source, pages: pages, tokenLimit: tokenLimit,
-        stopOnRepetition: stopOnRepetition
-    ) { event in
-        switch event {
-        case .started, .tokens:
-            break
-        case .attempt(let attempt):
-            if attempt.number > 1 {
-                var line = "  p. \(attempt.page) attempt \(attempt.number) of \(attempt.total) at temperature \(attempt.temperature)"
-                if attempt.rotation != 0 {
-                    line += ", rotated \(attempt.rotation)°"
+        print("\(url.lastPathComponent): \(pages.count) of \(source.pageCount) pages")
+        let plan = makeOutputPlan(
+            source: source, outputFolder: outputFolder, formats: formats,
+            model: await engine.modelName, modelRevision: await engine.modelRevision)
+        let (results, run) = try await transcribeDocument(
+            engine: engine, source: source, pages: pages, tokenLimit: tokenLimit,
+            stopOnRepetition: stopOnRepetition
+        ) { event in
+            switch event {
+            case .started, .tokens:
+                break
+            case .attempt(let attempt):
+                if attempt.number > 1 {
+                    var line = "  p. \(attempt.page) attempt \(attempt.number) of \(attempt.total) at temperature \(attempt.temperature)"
+                    if attempt.rotation != 0 {
+                        line += ", rotated \(attempt.rotation)°"
+                    }
+                    if let problem = attempt.previousProblem {
+                        line += " (previous attempt: \(problem))"
+                    }
+                    print(line)
                 }
-                if let problem = attempt.previousProblem {
-                    line += " (previous attempt: \(problem))"
+            case .finished(let result, let index, let total, let fromCache):
+                var line = String(format: "  p. %d (%d/%d) ", result.page, index + 1, total)
+                if fromCache {
+                    line += "from cache"
+                } else {
+                    line += String(format: "%.1f s, %d tokens, attempt %d", result.seconds, result.outputTokens, result.attempts)
+                }
+                if result.rotation != 0 {
+                    line += ", rotated \(result.rotation)°"
+                }
+                if result.needsChecking {
+                    line += " NEEDS CHECKING: \(result.problem ?? "")"
                 }
                 print(line)
+                do {
+                    try writePageFile(result, source: source, plan: plan, onlyIfMissing: fromCache)
+                } catch {
+                    printError("  Warning: could not write the file for p. \(result.page): \(error.localizedDescription)")
+                }
             }
-        case .finished(let result, let index, let total, let fromCache):
-            var line = String(format: "  p. %d (%d/%d) ", result.page, index + 1, total)
-            if fromCache {
-                line += "from cache"
-            } else {
-                line += String(format: "%.1f s, %d tokens, attempt %d", result.seconds, result.outputTokens, result.attempts)
-            }
-            if result.rotation != 0 {
-                line += ", rotated \(result.rotation)°"
-            }
-            if result.needsChecking {
-                line += " NEEDS CHECKING: \(result.problem ?? "")"
-            }
-            print(line)
-            try? writePageFile(result, source: source, plan: plan)
         }
-    }
-    let exported = try writeOutputs(results: results, run: run, source: source, plan: plan)
-    for file in exported.files {
-        print("  wrote \(file.path)")
+        let exported = try writeOutputs(results: results, run: run, source: source, plan: plan)
+        for file in exported.files {
+            print("  wrote \(file.path)")
+        }
+    } catch {
+        printError("Failed on \(url.lastPathComponent): \(error.localizedDescription)")
+        failures += 1
     }
 }
+
+exit(failures == 0 ? 0 : 1)

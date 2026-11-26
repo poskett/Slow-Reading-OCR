@@ -2,7 +2,7 @@
 import CryptoKit
 import Foundation
 
-public let appVersion = "1.1.1"
+public let appVersion = "1.1.2"
 
 public struct DocumentRun: Codable, Sendable {
     public var source: String
@@ -43,7 +43,11 @@ public func parsePageRange(_ text: String, pageCount: Int) -> [Int]? {
             guard first <= last else {
                 return nil
             }
-            pages.append(contentsOf: first...last)
+            let low = max(first, 1)
+            let high = min(last, pageCount)
+            if low <= high {
+                pages.append(contentsOf: low...high)
+            }
         } else {
             return nil
         }
