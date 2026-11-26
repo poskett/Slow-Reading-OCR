@@ -1,0 +1,510 @@
+<!DOCTYPE html>
+
+<html>
+<head>
+  <title>PageSource.swift</title>
+  <meta http-equiv="content-type" content="text/html; charset=UTF-8">
+  <link rel="stylesheet" media="all" href="public/stylesheets/normalize.css" />
+  <link rel="stylesheet" media="all" href="../../docco.css" />
+</head>
+<body>
+  <div class="container">
+    <div class="page">
+
+      <div class="header">
+        
+          <h1>PageSource.swift</h1>
+        
+
+        
+          <div class="toc">
+            <h3>Table of Contents</h3>
+            <ol>
+              
+                
+                <li>
+                  <a class="source" href="DocumentJob.html">
+                    Sources/OlmOCRCore/DocumentJob.swift
+                  </a>
+                </li>
+              
+                
+                <li>
+                  <a class="source" href="Exporters.html">
+                    Sources/OlmOCRCore/Exporters.swift
+                  </a>
+                </li>
+              
+                
+                <li>
+                  <a class="source" href="ModelDownloader.html">
+                    Sources/OlmOCRCore/ModelDownloader.swift
+                  </a>
+                </li>
+              
+                
+                <li>
+                  <a class="source" href="ModelStore.html">
+                    Sources/OlmOCRCore/ModelStore.swift
+                  </a>
+                </li>
+              
+                
+                <li>
+                  <a class="source" href="OCREngine.html">
+                    Sources/OlmOCRCore/OCREngine.swift
+                  </a>
+                </li>
+              
+                
+                <li>
+                  <a class="source" href="PageSource.html">
+                    Sources/OlmOCRCore/PageSource.swift
+                  </a>
+                </li>
+              
+                
+                <li>
+                  <a class="source" href="SystemCheck.html">
+                    Sources/OlmOCRCore/SystemCheck.swift
+                  </a>
+                </li>
+              
+                
+                <li>
+                  <a class="source" href="../olmocr/main.html">
+                    Sources/olmocr/main.swift
+                  </a>
+                </li>
+              
+            </ol>
+          </div>
+        
+      </div>
+
+      
+        
+        
+        
+          <div class='highlight'><pre><span class="hljs-comment">/* Declaration: Code generated using Anthropic Claude (Opus 5.5)*/</span></pre></div>
+        
+      
+        
+        <h3 id="code-commentary">Code Commentary</h3>
+<p>All commentary below was written manually by <a href="https://warwick.ac.uk/fac/arts/history/people/staff_index/poskett/">James Poskett</a> (University of Warwick).</p>
+<p>This commentary is for <a href="https://github.com/poskett/Slow-Reading-OCR/releases/tag/v1.1.1">v1.1.1</a>.</p>
+<h3 id="overview">Overview</h3>
+<p>This script defines functions to inspect, read, and present the actual PDF or image file used in the OCR.</p>
+<h3 id="import-libraries">Import Libraries</h3>
+<p>Alongside core libraries like CoreImage and Foundation, we also need PDFKit to extract and handle PDFs.</p>
+
+        
+          <div class='highlight'><pre><span class="hljs-keyword">import</span> CoreImage
+<span class="hljs-keyword">import</span> Foundation
+<span class="hljs-keyword">import</span> ImageIO
+<span class="hljs-keyword">import</span> PDFKit
+<span class="hljs-keyword">import</span> UniformTypeIdentifiers</pre></div>
+        
+      
+        
+        <h3 id="variables">Variables</h3>
+<p>olmOCR 2 needs a specific longest side length, defined here.</p>
+
+        
+          <div class='highlight'><pre><span class="hljs-keyword">public</span> <span class="hljs-keyword">let</span> targetLongestSide: <span class="hljs-type">CGFloat</span> <span class="hljs-operator">=</span> <span class="hljs-number">1288</span></pre></div>
+        
+      
+        
+        <p>Define an enum for different kinds of problems with the source.</p>
+
+        
+          <div class='highlight'><pre><span class="hljs-keyword">public</span> <span class="hljs-keyword">enum</span> <span class="hljs-title class_">PageSourceError</span>: <span class="hljs-title class_">LocalizedError</span> {
+    <span class="hljs-keyword">case</span> unreadable(<span class="hljs-type">URL</span>)
+    <span class="hljs-keyword">case</span> encrypted(<span class="hljs-type">URL</span>)
+    <span class="hljs-keyword">case</span> noPages(<span class="hljs-type">URL</span>)
+    <span class="hljs-keyword">case</span> unsupported(<span class="hljs-type">URL</span>)
+    <span class="hljs-keyword">case</span> pageOutOfRange(<span class="hljs-type">Int</span>)
+    <span class="hljs-keyword">case</span> renderFailed(<span class="hljs-type">Int</span>)</pre></div>
+        
+      
+        
+        <p>The enum includes the error descriptions.</p>
+
+        
+          <div class='highlight'><pre>    <span class="hljs-keyword">public</span> <span class="hljs-keyword">var</span> errorDescription: <span class="hljs-type">String</span>? {
+        <span class="hljs-keyword">switch</span> <span class="hljs-keyword">self</span> {
+        <span class="hljs-keyword">case</span> .unreadable(<span class="hljs-keyword">let</span> url): <span class="hljs-keyword">return</span> <span class="hljs-string">&quot;Could not open <span class="hljs-subst">\(url.lastPathComponent)</span>. The file may be damaged.&quot;</span>
+        <span class="hljs-keyword">case</span> .encrypted(<span class="hljs-keyword">let</span> url): <span class="hljs-keyword">return</span> <span class="hljs-string">&quot;<span class="hljs-subst">\(url.lastPathComponent)</span> is password-protected.&quot;</span>
+        <span class="hljs-keyword">case</span> .noPages(<span class="hljs-keyword">let</span> url):
+            <span class="hljs-keyword">let</span> isFolder <span class="hljs-operator">=</span> (<span class="hljs-keyword">try?</span> url.resourceValues(forKeys: [.isDirectoryKey]))<span class="hljs-operator">?</span>.isDirectory <span class="hljs-operator">==</span> <span class="hljs-literal">true</span>
+            <span class="hljs-keyword">return</span> isFolder
+                <span class="hljs-operator">?</span> <span class="hljs-string">&quot;<span class="hljs-subst">\(url.lastPathComponent)</span> has no images or PDFs in it.&quot;</span>
+                : <span class="hljs-string">&quot;<span class="hljs-subst">\(url.lastPathComponent)</span> has no pages.&quot;</span>
+        <span class="hljs-keyword">case</span> .unsupported(<span class="hljs-keyword">let</span> url): <span class="hljs-keyword">return</span> <span class="hljs-string">&quot;<span class="hljs-subst">\(url.lastPathComponent)</span> is not a PDF or an image file.&quot;</span>
+        <span class="hljs-keyword">case</span> .pageOutOfRange(<span class="hljs-keyword">let</span> page): <span class="hljs-keyword">return</span> <span class="hljs-string">&quot;Page <span class="hljs-subst">\(page)</span> does not exist.&quot;</span>
+        <span class="hljs-keyword">case</span> .renderFailed(<span class="hljs-keyword">let</span> page): <span class="hljs-keyword">return</span> <span class="hljs-string">&quot;Page <span class="hljs-subst">\(page)</span> could not be rendered.&quot;</span>
+        }
+    }
+}</pre></div>
+        
+      
+        
+        <p>A simple enum to define what kind of source we’re looking at: a pdf, image, or a folder full of files.</p>
+
+        
+          <div class='highlight'><pre><span class="hljs-keyword">public</span> <span class="hljs-keyword">enum</span> <span class="hljs-title class_">SourceKind</span>: <span class="hljs-title class_">String</span>, <span class="hljs-title class_">Codable</span>, <span class="hljs-title class_">Sendable</span> {
+    <span class="hljs-keyword">case</span> pdf
+    <span class="hljs-keyword">case</span> image
+    <span class="hljs-keyword">case</span> folder
+}</pre></div>
+        
+      
+        
+        <h3 id="page-class-and-functions">Page Class and Functions</h3>
+<p>A class to define everything about the page.</p>
+
+        
+          <div class='highlight'><pre><span class="hljs-keyword">public</span> <span class="hljs-keyword">final</span> <span class="hljs-keyword">class</span> <span class="hljs-title class_">PageSource</span>: @<span class="hljs-title class_">unchecked</span> <span class="hljs-title class_">Sendable</span> {
+    <span class="hljs-keyword">public</span> <span class="hljs-keyword">let</span> url: <span class="hljs-type">URL</span>
+    <span class="hljs-keyword">public</span> <span class="hljs-keyword">let</span> kind: <span class="hljs-type">SourceKind</span>
+    <span class="hljs-keyword">public</span> <span class="hljs-keyword">let</span> pageCount: <span class="hljs-type">Int</span>
+    <span class="hljs-keyword">private</span> <span class="hljs-keyword">let</span> pdf: <span class="hljs-type">PDFDocument</span>?
+    <span class="hljs-keyword">private</span> <span class="hljs-keyword">let</span> imageSource: <span class="hljs-type">CGImageSource</span>?
+    <span class="hljs-keyword">public</span> <span class="hljs-keyword">let</span> imageFiles: [<span class="hljs-type">URL</span>]
+    <span class="hljs-keyword">public</span> <span class="hljs-keyword">let</span> pageStems: [<span class="hljs-type">String</span>]</pre></div>
+        
+      
+        
+        <p>Define the supported file types</p>
+
+        
+          <div class='highlight'><pre>    <span class="hljs-keyword">public</span> <span class="hljs-keyword">static</span> <span class="hljs-keyword">let</span> supportedExtensions: <span class="hljs-type">Set</span>&lt;<span class="hljs-type">String</span>&gt; <span class="hljs-operator">=</span> [
+        <span class="hljs-string">&quot;pdf&quot;</span>, <span class="hljs-string">&quot;png&quot;</span>, <span class="hljs-string">&quot;jpg&quot;</span>, <span class="hljs-string">&quot;jpeg&quot;</span>, <span class="hljs-string">&quot;tif&quot;</span>, <span class="hljs-string">&quot;tiff&quot;</span>, <span class="hljs-string">&quot;jp2&quot;</span>, <span class="hljs-string">&quot;j2k&quot;</span>, <span class="hljs-string">&quot;jpf&quot;</span>, <span class="hljs-string">&quot;heic&quot;</span>, <span class="hljs-string">&quot;heif&quot;</span>, <span class="hljs-string">&quot;gif&quot;</span>, <span class="hljs-string">&quot;bmp&quot;</span>, <span class="hljs-string">&quot;webp&quot;</span>,
+    ]</pre></div>
+        
+      
+        
+        <p>Define if it is password protected</p>
+
+        
+          <div class='highlight'><pre>    <span class="hljs-keyword">public</span> <span class="hljs-keyword">init</span>(<span class="hljs-params">url</span>: <span class="hljs-type">URL</span>, <span class="hljs-params">password</span>: <span class="hljs-type">String</span>? <span class="hljs-operator">=</span> <span class="hljs-literal">nil</span>) <span class="hljs-keyword">throws</span> {
+        <span class="hljs-keyword">self</span>.url <span class="hljs-operator">=</span> url
+        <span class="hljs-keyword">var</span> isDirectory: <span class="hljs-type">ObjCBool</span> <span class="hljs-operator">=</span> <span class="hljs-literal">false</span>
+        <span class="hljs-type">FileManager</span>.default.fileExists(atPath: url.path, isDirectory: <span class="hljs-operator">&amp;</span>isDirectory)
+        <span class="hljs-keyword">if</span> isDirectory.boolValue {
+            <span class="hljs-keyword">let</span> files <span class="hljs-operator">=</span> <span class="hljs-type">PageSource</span>.imageFiles(in: url)
+            <span class="hljs-keyword">guard</span> <span class="hljs-operator">!</span>files.isEmpty <span class="hljs-keyword">else</span> {
+                <span class="hljs-keyword">throw</span> <span class="hljs-type">PageSourceError</span>.noPages(url)
+            }
+            <span class="hljs-keyword">self</span>.kind <span class="hljs-operator">=</span> .folder
+            <span class="hljs-keyword">self</span>.pdf <span class="hljs-operator">=</span> <span class="hljs-literal">nil</span>
+            <span class="hljs-keyword">self</span>.imageSource <span class="hljs-operator">=</span> <span class="hljs-literal">nil</span>
+            <span class="hljs-keyword">self</span>.imageFiles <span class="hljs-operator">=</span> files
+            <span class="hljs-keyword">self</span>.pageStems <span class="hljs-operator">=</span> <span class="hljs-type">PageSource</span>.uniqueStems(files, reserved: url.lastPathComponent)
+            <span class="hljs-keyword">self</span>.pageCount <span class="hljs-operator">=</span> files.count
+            <span class="hljs-keyword">return</span>
+        }
+        <span class="hljs-keyword">self</span>.imageFiles <span class="hljs-operator">=</span> []
+        <span class="hljs-keyword">self</span>.pageStems <span class="hljs-operator">=</span> []
+        <span class="hljs-keyword">let</span> ext <span class="hljs-operator">=</span> url.pathExtension.lowercased()</pre></div>
+        
+      
+        
+        <p>Throw an error if an unsupported file type</p>
+
+        
+          <div class='highlight'><pre>        <span class="hljs-keyword">guard</span> <span class="hljs-type">PageSource</span>.supportedExtensions.contains(ext) <span class="hljs-keyword">else</span> {
+            <span class="hljs-keyword">throw</span> <span class="hljs-type">PageSourceError</span>.unsupported(url)
+        }</pre></div>
+        
+      
+        
+        <p>If it is a PDF, check can read it or throw an error.</p>
+
+        
+          <div class='highlight'><pre>        <span class="hljs-keyword">if</span> ext <span class="hljs-operator">==</span> <span class="hljs-string">&quot;pdf&quot;</span> {
+            <span class="hljs-keyword">guard</span> <span class="hljs-keyword">let</span> document <span class="hljs-operator">=</span> <span class="hljs-type">PDFDocument</span>(url: url) <span class="hljs-keyword">else</span> {
+                <span class="hljs-keyword">throw</span> <span class="hljs-type">PageSourceError</span>.unreadable(url)
+            }</pre></div>
+        
+      
+        
+        <p>If is a PDF and locked, see if can unlock, if not, throw error.</p>
+
+        
+          <div class='highlight'><pre>            <span class="hljs-keyword">if</span> document.isLocked {
+                <span class="hljs-keyword">if</span> <span class="hljs-keyword">let</span> password, document.unlock(withPassword: password) {
+                } <span class="hljs-keyword">else</span> {
+                    <span class="hljs-keyword">throw</span> <span class="hljs-type">PageSourceError</span>.encrypted(url)
+                }
+            }</pre></div>
+        
+      
+        
+        <p>If it is a PDF, check the document has some pages!</p>
+
+        
+          <div class='highlight'><pre>            <span class="hljs-keyword">guard</span> document.pageCount <span class="hljs-operator">&gt;</span> <span class="hljs-number">0</span> <span class="hljs-keyword">else</span> {
+                <span class="hljs-keyword">throw</span> <span class="hljs-type">PageSourceError</span>.noPages(url)
+            }
+            <span class="hljs-keyword">self</span>.kind <span class="hljs-operator">=</span> .pdf
+            <span class="hljs-keyword">self</span>.pdf <span class="hljs-operator">=</span> document
+            <span class="hljs-keyword">self</span>.imageSource <span class="hljs-operator">=</span> <span class="hljs-literal">nil</span>
+            <span class="hljs-keyword">self</span>.pageCount <span class="hljs-operator">=</span> document.pageCount
+        } <span class="hljs-keyword">else</span> {</pre></div>
+        
+      
+        
+        <p>If a kind of image file, check it is readable.</p>
+
+        
+          <div class='highlight'><pre>            <span class="hljs-keyword">guard</span> <span class="hljs-keyword">let</span> source <span class="hljs-operator">=</span> <span class="hljs-type">CGImageSourceCreateWithURL</span>(url <span class="hljs-keyword">as</span> <span class="hljs-type">CFURL</span>, <span class="hljs-literal">nil</span>) <span class="hljs-keyword">else</span> {
+                <span class="hljs-keyword">throw</span> <span class="hljs-type">PageSourceError</span>.unreadable(url)
+            }</pre></div>
+        
+      
+        
+        <p>And likewise check it has &gt;0 pages.</p>
+
+        
+          <div class='highlight'><pre>            <span class="hljs-keyword">let</span> count <span class="hljs-operator">=</span> <span class="hljs-type">CGImageSourceGetCount</span>(source)
+            <span class="hljs-keyword">guard</span> count <span class="hljs-operator">&gt;</span> <span class="hljs-number">0</span> <span class="hljs-keyword">else</span> {
+                <span class="hljs-keyword">throw</span> <span class="hljs-type">PageSourceError</span>.noPages(url)
+            }
+            <span class="hljs-keyword">self</span>.kind <span class="hljs-operator">=</span> .image
+            <span class="hljs-keyword">self</span>.pdf <span class="hljs-operator">=</span> <span class="hljs-literal">nil</span>
+            <span class="hljs-keyword">self</span>.imageSource <span class="hljs-operator">=</span> source
+            <span class="hljs-keyword">self</span>.pageCount <span class="hljs-operator">=</span> count
+        }
+    }</pre></div>
+        
+      
+        
+        <p>A function to return any embedded text in the PDF.</p>
+
+        
+          <div class='highlight'><pre>    <span class="hljs-keyword">public</span> <span class="hljs-keyword">func</span> <span class="hljs-title function_">embeddedText</span>(<span class="hljs-params">page</span>: <span class="hljs-type">Int</span>) -&gt; <span class="hljs-type">String</span>? {
+        <span class="hljs-keyword">guard</span> <span class="hljs-keyword">let</span> pdf, <span class="hljs-keyword">let</span> pdfPage <span class="hljs-operator">=</span> pdf.page(at: page <span class="hljs-operator">-</span> <span class="hljs-number">1</span>) <span class="hljs-keyword">else</span> {
+            <span class="hljs-keyword">return</span> <span class="hljs-literal">nil</span>
+        }
+        <span class="hljs-keyword">let</span> text <span class="hljs-operator">=</span> pdfPage.string<span class="hljs-operator">?</span>.trimmingCharacters(in: .whitespacesAndNewlines) <span class="hljs-operator">??</span> <span class="hljs-string">&quot;&quot;</span>
+        <span class="hljs-keyword">return</span> text.isEmpty <span class="hljs-operator">?</span> <span class="hljs-literal">nil</span> : text
+    }</pre></div>
+        
+      
+        
+        <p>A function to simply check if a PDF and has embedded text.</p>
+
+        
+          <div class='highlight'><pre>    <span class="hljs-keyword">public</span> <span class="hljs-keyword">func</span> <span class="hljs-title function_">hasEmbeddedText</span>(<span class="hljs-params">samplePages</span>: <span class="hljs-type">Int</span> <span class="hljs-operator">=</span> <span class="hljs-number">3</span>) -&gt; <span class="hljs-type">Bool</span> {
+        <span class="hljs-keyword">guard</span> kind <span class="hljs-operator">==</span> .pdf <span class="hljs-keyword">else</span> {
+            <span class="hljs-keyword">return</span> <span class="hljs-literal">false</span>
+        }
+        <span class="hljs-keyword">for</span> page <span class="hljs-keyword">in</span> <span class="hljs-number">1</span><span class="hljs-operator">...</span><span class="hljs-built_in">min</span>(samplePages, pageCount) {
+            <span class="hljs-keyword">if</span> <span class="hljs-keyword">let</span> text <span class="hljs-operator">=</span> embeddedText(page: page), text.count <span class="hljs-operator">&gt;</span> <span class="hljs-number">200</span> {
+                <span class="hljs-keyword">return</span> <span class="hljs-literal">true</span>
+            }
+        }
+        <span class="hljs-keyword">return</span> <span class="hljs-literal">false</span>
+    }</pre></div>
+        
+      
+        
+        <h3 id="rendering">Rendering</h3>
+<p>This function renders the actual page as an image so it can be sent to the OCR later. It mainly just calls the relevant renderPDFPage or renderImage which handles the actual processing.</p>
+
+        
+          <div class='highlight'><pre>    <span class="hljs-keyword">public</span> <span class="hljs-keyword">func</span> <span class="hljs-title function_">render</span>(<span class="hljs-params">page</span>: <span class="hljs-type">Int</span>, <span class="hljs-params">longestSide</span>: <span class="hljs-type">CGFloat</span> <span class="hljs-operator">=</span> targetLongestSide) <span class="hljs-keyword">throws</span> -&gt; <span class="hljs-type">CIImage</span> {
+        <span class="hljs-keyword">guard</span> page <span class="hljs-operator">&gt;=</span> <span class="hljs-number">1</span>, page <span class="hljs-operator">&lt;=</span> pageCount <span class="hljs-keyword">else</span> {
+            <span class="hljs-keyword">throw</span> <span class="hljs-type">PageSourceError</span>.pageOutOfRange(page)
+        }
+        <span class="hljs-keyword">switch</span> kind {
+        <span class="hljs-keyword">case</span> .pdf:
+            <span class="hljs-keyword">return</span> <span class="hljs-keyword">try</span> renderPDFPage(page, longestSide: longestSide)
+        <span class="hljs-keyword">case</span> .image:
+            <span class="hljs-keyword">guard</span> <span class="hljs-keyword">let</span> imageSource <span class="hljs-keyword">else</span> {
+                <span class="hljs-keyword">throw</span> <span class="hljs-type">PageSourceError</span>.renderFailed(page)
+            }
+            <span class="hljs-keyword">return</span> <span class="hljs-keyword">try</span> renderImage(from: imageSource, index: page <span class="hljs-operator">-</span> <span class="hljs-number">1</span>, page: page, longestSide: longestSide)
+        <span class="hljs-keyword">case</span> .folder:
+            <span class="hljs-keyword">guard</span> <span class="hljs-keyword">let</span> source <span class="hljs-operator">=</span> <span class="hljs-type">CGImageSourceCreateWithURL</span>(imageFiles[page <span class="hljs-operator">-</span> <span class="hljs-number">1</span>] <span class="hljs-keyword">as</span> <span class="hljs-type">CFURL</span>, <span class="hljs-literal">nil</span>) <span class="hljs-keyword">else</span> {
+                <span class="hljs-keyword">throw</span> <span class="hljs-type">PageSourceError</span>.renderFailed(page)
+            }
+            <span class="hljs-keyword">return</span> <span class="hljs-keyword">try</span> renderImage(from: source, index: <span class="hljs-number">0</span>, page: page, longestSide: longestSide)
+        }
+    }
+
+    <span class="hljs-keyword">public</span> <span class="hljs-keyword">func</span> <span class="hljs-title function_">pageLabel</span>(<span class="hljs-keyword">_</span> <span class="hljs-params">page</span>: <span class="hljs-type">Int</span>) -&gt; <span class="hljs-type">String</span> {
+        kind <span class="hljs-operator">==</span> .folder <span class="hljs-operator">?</span> imageFiles[page <span class="hljs-operator">-</span> <span class="hljs-number">1</span>].lastPathComponent : <span class="hljs-string">&quot;<span class="hljs-subst">\(page)</span>&quot;</span>
+    }
+
+    <span class="hljs-keyword">public</span> <span class="hljs-keyword">static</span> <span class="hljs-keyword">func</span> <span class="hljs-title function_">imageFiles</span>(<span class="hljs-params">in</span> <span class="hljs-params">folder</span>: <span class="hljs-type">URL</span>) -&gt; [<span class="hljs-type">URL</span>] {
+        <span class="hljs-keyword">let</span> entries <span class="hljs-operator">=</span> (<span class="hljs-keyword">try?</span> <span class="hljs-type">FileManager</span>.default.contentsOfDirectory(
+            at: folder, includingPropertiesForKeys: <span class="hljs-literal">nil</span>, options: [.skipsHiddenFiles])) <span class="hljs-operator">??</span> []
+        <span class="hljs-keyword">return</span> entries
+            .filter { supportedExtensions.contains(<span class="hljs-variable">$0</span>.pathExtension.lowercased()) <span class="hljs-operator">&amp;&amp;</span> <span class="hljs-variable">$0</span>.pathExtension.lowercased() <span class="hljs-operator">!=</span> <span class="hljs-string">&quot;pdf&quot;</span> }
+            .sorted { <span class="hljs-variable">$0</span>.lastPathComponent.localizedStandardCompare(<span class="hljs-variable">$1</span>.lastPathComponent) <span class="hljs-operator">==</span> .orderedAscending }
+    }</pre></div>
+        
+      
+        
+        <p>This checks the page stems, although probably not strictly necessary as that is done in <a href="Exporters.swift">Exporters.html</a>.</p>
+
+        
+          <div class='highlight'><pre>    <span class="hljs-keyword">static</span> <span class="hljs-keyword">func</span> <span class="hljs-title function_">uniqueStems</span>(<span class="hljs-keyword">_</span> <span class="hljs-params">files</span>: [<span class="hljs-type">URL</span>], <span class="hljs-params">reserved</span>: <span class="hljs-type">String</span>) -&gt; [<span class="hljs-type">String</span>] {
+        <span class="hljs-keyword">let</span> stems <span class="hljs-operator">=</span> files.map { <span class="hljs-variable">$0</span>.deletingPathExtension().lastPathComponent }
+        <span class="hljs-keyword">var</span> counts: [<span class="hljs-type">String</span>: <span class="hljs-type">Int</span>] <span class="hljs-operator">=</span> [:]
+        <span class="hljs-keyword">for</span> stem <span class="hljs-keyword">in</span> stems {
+            counts[stem.lowercased(), <span class="hljs-keyword">default</span>: <span class="hljs-number">0</span>] <span class="hljs-operator">+=</span> <span class="hljs-number">1</span>
+        }
+        <span class="hljs-keyword">var</span> used: <span class="hljs-type">Set</span>&lt;<span class="hljs-type">String</span>&gt; <span class="hljs-operator">=</span> [reserved.lowercased()]
+        <span class="hljs-keyword">var</span> unique: [<span class="hljs-type">String</span>] <span class="hljs-operator">=</span> []
+        <span class="hljs-keyword">for</span> (file, stem) <span class="hljs-keyword">in</span> <span class="hljs-built_in">zip</span>(files, stems) {
+            <span class="hljs-keyword">var</span> name <span class="hljs-operator">=</span> counts[stem.lowercased()] <span class="hljs-operator">==</span> <span class="hljs-number">1</span> <span class="hljs-operator">?</span> stem : file.lastPathComponent
+            <span class="hljs-keyword">if</span> name.lowercased() <span class="hljs-operator">==</span> reserved.lowercased() {
+                name <span class="hljs-operator">+=</span> <span class="hljs-string">&quot;_page&quot;</span>
+            }
+            <span class="hljs-keyword">let</span> first <span class="hljs-operator">=</span> name
+            <span class="hljs-keyword">var</span> number <span class="hljs-operator">=</span> <span class="hljs-number">2</span>
+            <span class="hljs-keyword">while</span> <span class="hljs-operator">!</span>used.insert(name.lowercased()).inserted {
+                name <span class="hljs-operator">=</span> <span class="hljs-string">&quot;<span class="hljs-subst">\(first)</span>_<span class="hljs-subst">\(number)</span>&quot;</span>
+                number <span class="hljs-operator">+=</span> <span class="hljs-number">1</span>
+            }
+            unique.append(name)
+        }
+        <span class="hljs-keyword">return</span> unique
+    }</pre></div>
+        
+      
+        
+        <p>This is the function to do the rendering of the image from each PDF page. It uses PDFKit.</p>
+
+        
+          <div class='highlight'><pre>    <span class="hljs-keyword">private</span> <span class="hljs-keyword">func</span> <span class="hljs-title function_">renderPDFPage</span>(<span class="hljs-keyword">_</span> <span class="hljs-params">page</span>: <span class="hljs-type">Int</span>, <span class="hljs-params">longestSide</span>: <span class="hljs-type">CGFloat</span>) <span class="hljs-keyword">throws</span> -&gt; <span class="hljs-type">CIImage</span> {
+        <span class="hljs-keyword">guard</span> <span class="hljs-keyword">let</span> pdf, <span class="hljs-keyword">let</span> pdfPage <span class="hljs-operator">=</span> pdf.page(at: page <span class="hljs-operator">-</span> <span class="hljs-number">1</span>) <span class="hljs-keyword">else</span> {
+            <span class="hljs-keyword">throw</span> <span class="hljs-type">PageSourceError</span>.renderFailed(page)
+        }</pre></div>
+        
+      
+        
+        <p>Calculate the bounding box, width, height, and scale.</p>
+
+        
+          <div class='highlight'><pre>        <span class="hljs-keyword">let</span> box <span class="hljs-operator">=</span> pdfPage.bounds(for: .mediaBox)
+        <span class="hljs-keyword">let</span> quarterTurns <span class="hljs-operator">=</span> ((pdfPage.rotation <span class="hljs-operator">%</span> <span class="hljs-number">360</span>) <span class="hljs-operator">+</span> <span class="hljs-number">360</span>) <span class="hljs-operator">%</span> <span class="hljs-number">360</span> <span class="hljs-operator">/</span> <span class="hljs-number">90</span>
+        <span class="hljs-keyword">let</span> pageWidth <span class="hljs-operator">=</span> quarterTurns <span class="hljs-operator">%</span> <span class="hljs-number">2</span> <span class="hljs-operator">==</span> <span class="hljs-number">0</span> <span class="hljs-operator">?</span> box.width : box.height
+        <span class="hljs-keyword">let</span> pageHeight <span class="hljs-operator">=</span> quarterTurns <span class="hljs-operator">%</span> <span class="hljs-number">2</span> <span class="hljs-operator">==</span> <span class="hljs-number">0</span> <span class="hljs-operator">?</span> box.height : box.width
+        <span class="hljs-keyword">let</span> scale <span class="hljs-operator">=</span> longestSide <span class="hljs-operator">/</span> <span class="hljs-built_in">max</span>(pageWidth, pageHeight)
+        <span class="hljs-keyword">let</span> pixelWidth <span class="hljs-operator">=</span> <span class="hljs-type">Int</span>((pageWidth <span class="hljs-operator">*</span> scale).rounded())
+        <span class="hljs-keyword">let</span> pixelHeight <span class="hljs-operator">=</span> <span class="hljs-type">Int</span>((pageHeight <span class="hljs-operator">*</span> scale).rounded())</pre></div>
+        
+      
+        
+        <p>Define the image space using the above so we can draw.</p>
+
+        
+          <div class='highlight'><pre>        <span class="hljs-keyword">guard</span> <span class="hljs-keyword">let</span> context <span class="hljs-operator">=</span> <span class="hljs-type">CGContext</span>(
+            data: <span class="hljs-literal">nil</span>, width: pixelWidth, height: pixelHeight, bitsPerComponent: <span class="hljs-number">8</span>, bytesPerRow: <span class="hljs-number">0</span>,
+            space: <span class="hljs-type">CGColorSpace</span>(name: <span class="hljs-type">CGColorSpace</span>.sRGB)<span class="hljs-operator">!</span>,
+            bitmapInfo: <span class="hljs-type">CGImageAlphaInfo</span>.noneSkipLast.rawValue)
+        <span class="hljs-keyword">else</span> {
+            <span class="hljs-keyword">throw</span> <span class="hljs-type">PageSourceError</span>.renderFailed(page)
+        }</pre></div>
+        
+      
+        
+        <p>Fill the empty image with white</p>
+
+        
+          <div class='highlight'><pre>        context.setFillColor(<span class="hljs-type">CGColor</span>(red: <span class="hljs-number">1</span>, green: <span class="hljs-number">1</span>, blue: <span class="hljs-number">1</span>, alpha: <span class="hljs-number">1</span>))
+        context.fill(<span class="hljs-type">CGRect</span>(x: <span class="hljs-number">0</span>, y: <span class="hljs-number">0</span>, width: pixelWidth, height: pixelHeight))
+        context.interpolationQuality <span class="hljs-operator">=</span> .high
+        context.scaleBy(x: scale, y: scale)
+        context.concatenate(pdfPage.transform(for: .mediaBox))</pre></div>
+        
+      
+        
+        <p>Draw the actual PDF page to the image.</p>
+
+        
+          <div class='highlight'><pre>        pdfPage.draw(with: .mediaBox, to: context)
+
+        <span class="hljs-keyword">guard</span> <span class="hljs-keyword">let</span> cgImage <span class="hljs-operator">=</span> context.makeImage() <span class="hljs-keyword">else</span> {
+            <span class="hljs-keyword">throw</span> <span class="hljs-type">PageSourceError</span>.renderFailed(page)
+        }
+        <span class="hljs-keyword">return</span> <span class="hljs-type">CIImage</span>(cgImage: cgImage)
+    }</pre></div>
+        
+      
+        
+        <p>The same idea again, but this time for image files rather than PDFs. This is a bit more straightforward, because we don’t need to extract the image from the PDF. We can just decode, apply the relevant metadata (exif) and resize.</p>
+
+        
+          <div class='highlight'><pre>    <span class="hljs-keyword">private</span> <span class="hljs-keyword">func</span> <span class="hljs-title function_">renderImage</span>(<span class="hljs-params">from</span> <span class="hljs-params">imageSource</span>: <span class="hljs-type">CGImageSource</span>, <span class="hljs-params">index</span>: <span class="hljs-type">Int</span>, <span class="hljs-params">page</span>: <span class="hljs-type">Int</span>, <span class="hljs-params">longestSide</span>: <span class="hljs-type">CGFloat</span>) <span class="hljs-keyword">throws</span> -&gt; <span class="hljs-type">CIImage</span> {
+        <span class="hljs-keyword">guard</span> <span class="hljs-keyword">let</span> cgImage <span class="hljs-operator">=</span> <span class="hljs-type">CGImageSourceCreateImageAtIndex</span>(imageSource, index, <span class="hljs-literal">nil</span>) <span class="hljs-keyword">else</span> {
+            <span class="hljs-keyword">throw</span> <span class="hljs-type">PageSourceError</span>.renderFailed(page)
+        }
+        <span class="hljs-keyword">var</span> image <span class="hljs-operator">=</span> <span class="hljs-type">CIImage</span>(cgImage: cgImage)
+        <span class="hljs-keyword">let</span> properties <span class="hljs-operator">=</span> <span class="hljs-type">CGImageSourceCopyPropertiesAtIndex</span>(imageSource, index, <span class="hljs-literal">nil</span>) <span class="hljs-keyword">as?</span> [<span class="hljs-type">CFString</span>: <span class="hljs-keyword">Any</span>]
+        <span class="hljs-keyword">if</span> <span class="hljs-keyword">let</span> orientation <span class="hljs-operator">=</span> properties<span class="hljs-operator">?</span>[kCGImagePropertyOrientation] <span class="hljs-keyword">as?</span> <span class="hljs-type">UInt32</span>,
+            <span class="hljs-keyword">let</span> exif <span class="hljs-operator">=</span> <span class="hljs-type">CGImagePropertyOrientation</span>(rawValue: orientation), exif <span class="hljs-operator">!=</span> .up
+        {
+            image <span class="hljs-operator">=</span> image.oriented(exif)
+            image <span class="hljs-operator">=</span> image.transformed(
+                by: <span class="hljs-type">CGAffineTransform</span>(translationX: <span class="hljs-operator">-</span>image.extent.origin.x, y: <span class="hljs-operator">-</span>image.extent.origin.y))
+        }
+        <span class="hljs-keyword">return</span> resize(image, longestSide: longestSide)
+    }
+}</pre></div>
+        
+      
+        
+        <h3 id="resize">Resize</h3>
+<p>olmOCR 2 requires a specific longest side size of the image, so this function (called above) makes sure we resize the image correctly.</p>
+
+        
+          <div class='highlight'><pre><span class="hljs-keyword">public</span> <span class="hljs-keyword">func</span> <span class="hljs-title function_">resize</span>(<span class="hljs-keyword">_</span> <span class="hljs-params">image</span>: <span class="hljs-type">CIImage</span>, <span class="hljs-params">longestSide</span>: <span class="hljs-type">CGFloat</span>) -&gt; <span class="hljs-type">CIImage</span> {
+    <span class="hljs-keyword">let</span> longest <span class="hljs-operator">=</span> <span class="hljs-built_in">max</span>(image.extent.width, image.extent.height)
+    <span class="hljs-keyword">if</span> longest <span class="hljs-operator">==</span> longestSide {
+        <span class="hljs-keyword">return</span> image
+    }
+    <span class="hljs-keyword">let</span> filter <span class="hljs-operator">=</span> <span class="hljs-type">CIFilter</span>(name: <span class="hljs-string">&quot;CILanczosScaleTransform&quot;</span>)<span class="hljs-operator">!</span>
+    filter.setValue(image, forKey: kCIInputImageKey)
+    filter.setValue(longestSide <span class="hljs-operator">/</span> longest, forKey: kCIInputScaleKey)
+    filter.setValue(<span class="hljs-number">1.0</span>, forKey: kCIInputAspectRatioKey)
+    <span class="hljs-keyword">return</span> filter.outputImage<span class="hljs-operator">!</span>
+}</pre></div>
+        
+      
+        
+        <p>Likewise, this allows for rotation as needed, particularly for retries.</p>
+
+        
+          <div class='highlight'><pre><span class="hljs-keyword">public</span> <span class="hljs-keyword">func</span> <span class="hljs-title function_">rotateCounterClockwise</span>(<span class="hljs-keyword">_</span> <span class="hljs-params">image</span>: <span class="hljs-type">CIImage</span>, <span class="hljs-params">degrees</span>: <span class="hljs-type">Int</span>) -&gt; <span class="hljs-type">CIImage</span> {
+    <span class="hljs-keyword">let</span> normalised <span class="hljs-operator">=</span> ((degrees <span class="hljs-operator">%</span> <span class="hljs-number">360</span>) <span class="hljs-operator">+</span> <span class="hljs-number">360</span>) <span class="hljs-operator">%</span> <span class="hljs-number">360</span>
+    <span class="hljs-keyword">if</span> normalised <span class="hljs-operator">==</span> <span class="hljs-number">0</span> {
+        <span class="hljs-keyword">return</span> image
+    }
+    <span class="hljs-keyword">let</span> radians <span class="hljs-operator">=</span> <span class="hljs-type">CGFloat</span>(normalised) <span class="hljs-operator">*</span> .pi <span class="hljs-operator">/</span> <span class="hljs-number">180</span>
+    <span class="hljs-keyword">let</span> rotated <span class="hljs-operator">=</span> image.transformed(by: <span class="hljs-type">CGAffineTransform</span>(rotationAngle: radians))
+    <span class="hljs-keyword">return</span> rotated.transformed(
+        by: <span class="hljs-type">CGAffineTransform</span>(translationX: <span class="hljs-operator">-</span>rotated.extent.origin.x, y: <span class="hljs-operator">-</span>rotated.extent.origin.y))
+}</pre></div>
+        
+      
+        
+        <p>A simple function to save the image we created as an actual .png file.</p>
+
+        
+          <div class='highlight'><pre><span class="hljs-keyword">public</span> <span class="hljs-keyword">func</span> <span class="hljs-title function_">savePNG</span>(<span class="hljs-keyword">_</span> <span class="hljs-params">image</span>: <span class="hljs-type">CIImage</span>, <span class="hljs-params">to</span> <span class="hljs-params">url</span>: <span class="hljs-type">URL</span>) <span class="hljs-keyword">throws</span> {
+    <span class="hljs-keyword">let</span> context <span class="hljs-operator">=</span> <span class="hljs-type">CIContext</span>()
+    <span class="hljs-keyword">try</span> context.writePNGRepresentation(
+        of: image, to: url, format: .<span class="hljs-type">RGBA8</span>, colorSpace: <span class="hljs-type">CGColorSpace</span>(name: <span class="hljs-type">CGColorSpace</span>.sRGB)<span class="hljs-operator">!</span>)
+}</pre></div>
+        
+      
+      <div class="fleur">h</div>
+    </div>
+  </div>
+</body>
+</html>

@@ -1,0 +1,416 @@
+<!DOCTYPE html>
+
+<html>
+<head>
+  <title>main.swift</title>
+  <meta http-equiv="content-type" content="text/html; charset=UTF-8">
+  <link rel="stylesheet" media="all" href="public/stylesheets/normalize.css" />
+  <link rel="stylesheet" media="all" href="../../docco.css" />
+</head>
+<body>
+  <div class="container">
+    <div class="page">
+
+      <div class="header">
+        
+          <h1>main.swift</h1>
+        
+
+        
+          <div class="toc">
+            <h3>Table of Contents</h3>
+            <ol>
+              
+                
+                <li>
+                  <a class="source" href="../OlmOCRCore/DocumentJob.html">
+                    Sources/OlmOCRCore/DocumentJob.swift
+                  </a>
+                </li>
+              
+                
+                <li>
+                  <a class="source" href="../OlmOCRCore/Exporters.html">
+                    Sources/OlmOCRCore/Exporters.swift
+                  </a>
+                </li>
+              
+                
+                <li>
+                  <a class="source" href="../OlmOCRCore/ModelDownloader.html">
+                    Sources/OlmOCRCore/ModelDownloader.swift
+                  </a>
+                </li>
+              
+                
+                <li>
+                  <a class="source" href="../OlmOCRCore/ModelStore.html">
+                    Sources/OlmOCRCore/ModelStore.swift
+                  </a>
+                </li>
+              
+                
+                <li>
+                  <a class="source" href="../OlmOCRCore/OCREngine.html">
+                    Sources/OlmOCRCore/OCREngine.swift
+                  </a>
+                </li>
+              
+                
+                <li>
+                  <a class="source" href="../OlmOCRCore/PageSource.html">
+                    Sources/OlmOCRCore/PageSource.swift
+                  </a>
+                </li>
+              
+                
+                <li>
+                  <a class="source" href="../OlmOCRCore/SystemCheck.html">
+                    Sources/OlmOCRCore/SystemCheck.swift
+                  </a>
+                </li>
+              
+                
+                <li>
+                  <a class="source" href="main.html">
+                    Sources/olmocr/main.swift
+                  </a>
+                </li>
+              
+            </ol>
+          </div>
+        
+      </div>
+
+      
+        
+        
+        
+          <div class='highlight'><pre><span class="hljs-comment">/* Declaration: Code generated using Anthropic Claude (Opus 5.5)*/</span></pre></div>
+        
+      
+        
+        <h3 id="code-commentary">Code Commentary</h3>
+<p>All commentary below was written manually by <a href="https://warwick.ac.uk/fac/arts/history/people/staff_index/poskett/">James Poskett</a> (University of Warwick).</p>
+<p>This commentary is for <a href="https://github.com/poskett/Slow-Reading-OCR/releases/tag/v1.1.1">v1.1.1</a>.</p>
+<h3 id="overview">Overview</h3>
+<p>This is the required main.swift script for the application. It imports OlmOCRCore and runs everything.</p>
+<h3 id="import-libraries">Import Libraries</h3>
+<p>Here we need Foundation (to read and write to disk) and everything in OlmOCRCore to actually do the OCR.</p>
+
+        
+          <div class='highlight'><pre><span class="hljs-keyword">import</span> Foundation
+<span class="hljs-keyword">import</span> OlmOCRCore</pre></div>
+        
+      
+        
+        <h3 id="variables-and-arguments">Variables and Arguments</h3>
+
+        
+      
+        
+        <p>This defines the usage if called by command line. OlmOCRCore works irrespective of the actual application it is called in, so can be run by Terminal.</p>
+
+        
+          <div class='highlight'><pre><span class="hljs-keyword">let</span> usage <span class="hljs-operator">=</span> <span class="hljs-string">&quot;&quot;&quot;
+    usage: olmocr [options] &lt;pdf, image or folder of images&gt; ...
+
+      --model &lt;full|compact|folder&gt;  model to use (default: the best one this Mac supports)
+      --pages &lt;range&gt;                e.g. 1-5,9 (default: all pages)
+      --out &lt;folder&gt;                 where to write results (default: next to each source)
+      --format &lt;list&gt;                markdown,text,pages,jsonl,manifest (default: markdown)
+      --max-tokens &lt;n&gt;               page length limit: 4000, 6000 (default) or 8000
+      --no-repetition-check          let attempts run on when the model repeats itself (olmOCR behaviour)
+      --save-images &lt;folder&gt;         also save each rendered page image (for checking)
+
+    other commands:
+      olmocr --check                 report what this Mac can run
+      olmocr --download &lt;full|compact&gt;
+    &quot;&quot;&quot;</span></pre></div>
+        
+      
+        
+        <p>Define the arguments, dropping the first one which is just the path of the application.</p>
+
+        
+          <div class='highlight'><pre><span class="hljs-keyword">var</span> arguments <span class="hljs-operator">=</span> <span class="hljs-type">Array</span>(<span class="hljs-type">CommandLine</span>.arguments.dropFirst())</pre></div>
+        
+      
+        
+        <h3 id="model-tiers-download-and-checks">Model Tiers, Download, and Checks</h3>
+
+        
+      
+        
+        <p>The app uses two tiers of the model, depending on how much memory is available. This defines full (8bit) and compact (4bit).</p>
+
+        
+          <div class='highlight'><pre><span class="hljs-keyword">func</span> <span class="hljs-title function_">tier</span>(<span class="hljs-params">named</span> <span class="hljs-params">name</span>: <span class="hljs-type">String</span>) -&gt; <span class="hljs-type">ModelTier</span>? {
+    <span class="hljs-keyword">switch</span> name {
+    <span class="hljs-keyword">case</span> <span class="hljs-string">&quot;full&quot;</span>, <span class="hljs-string">&quot;8bit&quot;</span>: <span class="hljs-keyword">return</span> .full
+    <span class="hljs-keyword">case</span> <span class="hljs-string">&quot;compact&quot;</span>, <span class="hljs-string">&quot;4bit&quot;</span>: <span class="hljs-keyword">return</span> .compact
+    <span class="hljs-keyword">default</span>: <span class="hljs-keyword">return</span> <span class="hljs-literal">nil</span>
+    }
+}</pre></div>
+        
+      
+        
+        <p>If given the check argument, then it checks whether it can run.</p>
+
+        
+          <div class='highlight'><pre><span class="hljs-keyword">if</span> arguments.first <span class="hljs-operator">==</span> <span class="hljs-string">&quot;--check&quot;</span> {
+    <span class="hljs-keyword">let</span> report <span class="hljs-operator">=</span> checkSystem()
+    <span class="hljs-built_in">print</span>(report.diagnosticText)
+    <span class="hljs-keyword">if</span> <span class="hljs-keyword">let</span> problem <span class="hljs-operator">=</span> report.blockingProblem {
+        <span class="hljs-built_in">print</span>(<span class="hljs-string">&quot;<span class="hljs-subst">\n</span>Cannot run: <span class="hljs-subst">\(problem)</span>&quot;</span>)
+    }
+    <span class="hljs-keyword">for</span> tier <span class="hljs-keyword">in</span> report.supportedTiers {
+        <span class="hljs-keyword">let</span> location <span class="hljs-operator">=</span> installedModelDirectory(tier)<span class="hljs-operator">?</span>.path <span class="hljs-operator">??</span> <span class="hljs-string">&quot;not installed&quot;</span>
+        <span class="hljs-built_in">print</span>(<span class="hljs-string">&quot;<span class="hljs-subst">\n</span><span class="hljs-subst">\(tier.title)</span> (<span class="hljs-subst">\(tier.folderName)</span>): <span class="hljs-subst">\(location)</span>&quot;</span>)
+        <span class="hljs-keyword">for</span> warning <span class="hljs-keyword">in</span> report.warnings(for: tier) {
+            <span class="hljs-built_in">print</span>(<span class="hljs-string">&quot;  warning: <span class="hljs-subst">\(warning)</span>&quot;</span>)
+        }
+    }
+    exit(<span class="hljs-number">0</span>)
+}</pre></div>
+        
+      
+        
+        <p>Giving this argument attempts to download the model and running estimate of time left.</p>
+
+        
+          <div class='highlight'><pre><span class="hljs-keyword">if</span> arguments.first <span class="hljs-operator">==</span> <span class="hljs-string">&quot;--download&quot;</span> {
+    <span class="hljs-keyword">guard</span> arguments.count <span class="hljs-operator">==</span> <span class="hljs-number">2</span>, <span class="hljs-keyword">let</span> tier <span class="hljs-operator">=</span> tier(named: arguments[<span class="hljs-number">1</span>]) <span class="hljs-keyword">else</span> {
+        <span class="hljs-built_in">print</span>(usage)
+        exit(<span class="hljs-number">1</span>)
+    }
+    <span class="hljs-built_in">print</span>(<span class="hljs-string">&quot;Downloading <span class="hljs-subst">\(tier.repo)</span> to <span class="hljs-subst">\(ModelStore.modelsDirectory.path)</span>&quot;</span>)
+    <span class="hljs-keyword">let</span> folder <span class="hljs-operator">=</span> <span class="hljs-keyword">try</span> <span class="hljs-keyword">await</span> downloadModel(tier) { progress <span class="hljs-keyword">in</span>
+        <span class="hljs-keyword">let</span> remaining <span class="hljs-operator">=</span> progress.secondsRemaining.map { <span class="hljs-type">String</span>(format: <span class="hljs-string">&quot;, about %.0f min left&quot;</span>, <span class="hljs-variable">$0</span> <span class="hljs-operator">/</span> <span class="hljs-number">60</span>) } <span class="hljs-operator">??</span> <span class="hljs-string">&quot;&quot;</span>
+        <span class="hljs-built_in">print</span>(<span class="hljs-type">String</span>(format: <span class="hljs-string">&quot;  %5.1f%%  %@ of %@  %.1f MB/s%@  %@&quot;</span>,
+            progress.fraction <span class="hljs-operator">*</span> <span class="hljs-number">100</span>, formatBytes(progress.bytesDone), formatBytes(progress.bytesTotal),
+            progress.bytesPerSecond <span class="hljs-operator">/</span> <span class="hljs-number">1_000_000</span>, remaining, progress.currentFile))
+    }
+    <span class="hljs-built_in">print</span>(<span class="hljs-string">&quot;Installed in <span class="hljs-subst">\(folder.path)</span>&quot;</span>)
+    exit(<span class="hljs-number">0</span>)
+}
+
+<span class="hljs-meta">@MainActor</span> <span class="hljs-keyword">func</span> <span class="hljs-title function_">option</span>(<span class="hljs-keyword">_</span> <span class="hljs-params">name</span>: <span class="hljs-type">String</span>) -&gt; <span class="hljs-type">String</span>? {
+    <span class="hljs-keyword">guard</span> <span class="hljs-keyword">let</span> index <span class="hljs-operator">=</span> arguments.firstIndex(of: name), index <span class="hljs-operator">+</span> <span class="hljs-number">1</span> <span class="hljs-operator">&lt;</span> arguments.count <span class="hljs-keyword">else</span> {
+        <span class="hljs-keyword">return</span> <span class="hljs-literal">nil</span>
+    }
+    <span class="hljs-keyword">let</span> value <span class="hljs-operator">=</span> arguments[index <span class="hljs-operator">+</span> <span class="hljs-number">1</span>]
+    arguments.removeSubrange(index<span class="hljs-operator">...</span>index <span class="hljs-operator">+</span> <span class="hljs-number">1</span>)
+    <span class="hljs-keyword">return</span> value
+}</pre></div>
+        
+      
+        
+        <p>The other main arguments</p>
+
+        
+          <div class='highlight'><pre><span class="hljs-keyword">let</span> modelChoice <span class="hljs-operator">=</span> option(<span class="hljs-string">&quot;--model&quot;</span>) <span class="hljs-operator">??</span> checkSystem().supportedTiers.first<span class="hljs-operator">?</span>.rawValue <span class="hljs-operator">??</span> <span class="hljs-string">&quot;compact&quot;</span>
+<span class="hljs-keyword">let</span> pageRange <span class="hljs-operator">=</span> option(<span class="hljs-string">&quot;--pages&quot;</span>)
+<span class="hljs-keyword">let</span> outputFolder <span class="hljs-operator">=</span> option(<span class="hljs-string">&quot;--out&quot;</span>).map { <span class="hljs-type">URL</span>(fileURLWithPath: <span class="hljs-variable">$0</span>, isDirectory: <span class="hljs-literal">true</span>) }
+<span class="hljs-keyword">let</span> imageFolder <span class="hljs-operator">=</span> option(<span class="hljs-string">&quot;--save-images&quot;</span>).map { <span class="hljs-type">URL</span>(fileURLWithPath: <span class="hljs-variable">$0</span>, isDirectory: <span class="hljs-literal">true</span>) }
+<span class="hljs-keyword">let</span> tokenLimit <span class="hljs-operator">=</span> option(<span class="hljs-string">&quot;--max-tokens&quot;</span>).flatMap(<span class="hljs-type">Int</span>.<span class="hljs-keyword">init</span>) <span class="hljs-operator">??</span> defaultTokenLimit
+<span class="hljs-keyword">let</span> stopOnRepetition <span class="hljs-operator">=</span> <span class="hljs-operator">!</span>arguments.contains(<span class="hljs-string">&quot;--no-repetition-check&quot;</span>)
+arguments.removeAll { <span class="hljs-variable">$0</span> <span class="hljs-operator">==</span> <span class="hljs-string">&quot;--no-repetition-check&quot;</span> }
+<span class="hljs-keyword">let</span> formatText <span class="hljs-operator">=</span> option(<span class="hljs-string">&quot;--format&quot;</span>) <span class="hljs-operator">??</span> <span class="hljs-string">&quot;markdown&quot;</span>
+<span class="hljs-keyword">let</span> formats <span class="hljs-operator">=</span> formatText.split(separator: <span class="hljs-string">&quot;,&quot;</span>).compactMap { <span class="hljs-type">OutputFormat</span>(rawValue: <span class="hljs-type">String</span>(<span class="hljs-variable">$0</span>)) }</pre></div>
+        
+      
+        
+        <p>Quit if the arguments are empty or not valid format.</p>
+
+        
+          <div class='highlight'><pre><span class="hljs-keyword">guard</span> <span class="hljs-operator">!</span>arguments.isEmpty, <span class="hljs-operator">!</span>formats.isEmpty <span class="hljs-keyword">else</span> {
+    <span class="hljs-built_in">print</span>(usage)
+    exit(<span class="hljs-number">1</span>)
+}</pre></div>
+        
+      
+        
+        <p>Define the model directory and check the chosen tier of model.</p>
+
+        
+          <div class='highlight'><pre><span class="hljs-keyword">var</span> modelDirectory <span class="hljs-operator">=</span> <span class="hljs-type">URL</span>(fileURLWithPath: modelChoice, isDirectory: <span class="hljs-literal">true</span>)
+<span class="hljs-keyword">if</span> <span class="hljs-keyword">let</span> chosenTier <span class="hljs-operator">=</span> tier(named: modelChoice) {
+    <span class="hljs-keyword">guard</span> <span class="hljs-keyword">let</span> installed <span class="hljs-operator">=</span> installedModelDirectory(chosenTier) <span class="hljs-keyword">else</span> {
+        <span class="hljs-built_in">print</span>(<span class="hljs-string">&quot;The <span class="hljs-subst">\(chosenTier.title)</span> model is not installed. Run: olmocr --download <span class="hljs-subst">\(chosenTier.rawValue)</span>&quot;</span>)
+        exit(<span class="hljs-number">1</span>)
+    }
+    modelDirectory <span class="hljs-operator">=</span> installed
+}</pre></div>
+        
+      
+        
+        <h3 id="load-model">Load Model</h3>
+<p>Start loading the model and print what happened.</p>
+
+        
+          <div class='highlight'><pre><span class="hljs-built_in">print</span>(<span class="hljs-string">&quot;Loading model <span class="hljs-subst">\(ModelStore.modelName(for: modelDirectory))</span> ...&quot;</span>)
+<span class="hljs-keyword">let</span> loadStart <span class="hljs-operator">=</span> <span class="hljs-type">Date</span>()
+<span class="hljs-keyword">let</span> engine <span class="hljs-operator">=</span> <span class="hljs-keyword">try</span> <span class="hljs-keyword">await</span> <span class="hljs-type">OCREngine</span>.load(modelDirectory: modelDirectory)
+<span class="hljs-built_in">print</span>(<span class="hljs-type">String</span>(format: <span class="hljs-string">&quot;Model loaded in %.1f s&quot;</span>, <span class="hljs-type">Date</span>().timeIntervalSince(loadStart)))</pre></div>
+        
+      
+        
+        <h3 id="run-the-ocr">Run the OCR</h3>
+<p>This loop does the main OCR work, making use of everything in OlmOCRCore. It takes each argument and processes it.</p>
+
+        
+          <div class='highlight'><pre><span class="hljs-keyword">for</span> path <span class="hljs-keyword">in</span> arguments {</pre></div>
+        
+      
+        
+        <p>Get the file path</p>
+
+        
+          <div class='highlight'><pre>    <span class="hljs-keyword">let</span> url <span class="hljs-operator">=</span> <span class="hljs-type">URL</span>(fileURLWithPath: path)</pre></div>
+        
+      
+        
+        <p>Define the page source</p>
+
+        
+          <div class='highlight'><pre>    <span class="hljs-keyword">let</span> source: <span class="hljs-type">PageSource</span></pre></div>
+        
+      
+        
+        <p>Try to actually load the page source, or otherwise skip it.</p>
+
+        
+          <div class='highlight'><pre>    <span class="hljs-keyword">do</span> {
+        source <span class="hljs-operator">=</span> <span class="hljs-keyword">try</span> <span class="hljs-type">PageSource</span>(url: url)
+    } <span class="hljs-keyword">catch</span> {
+        <span class="hljs-built_in">print</span>(<span class="hljs-string">&quot;Skipping <span class="hljs-subst">\(url.lastPathComponent)</span>: <span class="hljs-subst">\(error.localizedDescription)</span>&quot;</span>)
+        <span class="hljs-keyword">continue</span>
+    }</pre></div>
+        
+      
+        
+        <p>The list of pages to be processed.</p>
+
+        
+          <div class='highlight'><pre>    <span class="hljs-keyword">let</span> pages: [<span class="hljs-type">Int</span>]</pre></div>
+        
+      
+        
+        <p>Make sure the page range checks out.</p>
+
+        
+          <div class='highlight'><pre>    <span class="hljs-keyword">if</span> <span class="hljs-keyword">let</span> pageRange {
+        <span class="hljs-keyword">guard</span> <span class="hljs-keyword">let</span> parsed <span class="hljs-operator">=</span> parsePageRange(pageRange, pageCount: source.pageCount) <span class="hljs-keyword">else</span> {
+            <span class="hljs-built_in">print</span>(<span class="hljs-string">&quot;Skipping <span class="hljs-subst">\(url.lastPathComponent)</span>: page range <span class="hljs-subst">\(pageRange)</span> does not fit its <span class="hljs-subst">\(source.pageCount)</span> pages.&quot;</span>)
+            <span class="hljs-keyword">continue</span>
+        }
+        pages <span class="hljs-operator">=</span> parsed
+    } <span class="hljs-keyword">else</span> {
+        pages <span class="hljs-operator">=</span> <span class="hljs-type">Array</span>(<span class="hljs-number">1</span><span class="hljs-operator">...</span>source.pageCount)
+    }</pre></div>
+        
+      
+        
+        <p>Make a note if the PDF already contained embedded text.</p>
+
+        
+          <div class='highlight'><pre>    <span class="hljs-keyword">if</span> source.hasEmbeddedText() {
+        <span class="hljs-built_in">print</span>(<span class="hljs-string">&quot;Note: <span class="hljs-subst">\(url.lastPathComponent)</span> already contains a text layer; transcribing anyway.&quot;</span>)
+    }</pre></div>
+        
+      
+        
+        <p>Render the image and save the PNG.</p>
+
+        
+          <div class='highlight'><pre>    <span class="hljs-keyword">if</span> <span class="hljs-keyword">let</span> imageFolder {
+        <span class="hljs-keyword">try</span> <span class="hljs-type">FileManager</span>.default.createDirectory(at: imageFolder, withIntermediateDirectories: <span class="hljs-literal">true</span>)
+        <span class="hljs-keyword">for</span> page <span class="hljs-keyword">in</span> pages {
+            <span class="hljs-keyword">let</span> image <span class="hljs-operator">=</span> <span class="hljs-keyword">try</span> source.render(page: page)
+            <span class="hljs-keyword">let</span> name <span class="hljs-operator">=</span> url.deletingPathExtension().lastPathComponent <span class="hljs-operator">+</span> <span class="hljs-type">String</span>(format: <span class="hljs-string">&quot;_p%04d.png&quot;</span>, page)
+            <span class="hljs-keyword">try</span> savePNG(image, to: imageFolder.appendingPathComponent(name))
+        }
+    }
+
+    <span class="hljs-built_in">print</span>(<span class="hljs-string">&quot;<span class="hljs-subst">\(url.lastPathComponent)</span>: <span class="hljs-subst">\(pages.count)</span> of <span class="hljs-subst">\(source.pageCount)</span> pages&quot;</span>)</pre></div>
+        
+      
+        
+        <p>Make the plan for OCR</p>
+
+        
+          <div class='highlight'><pre>    <span class="hljs-keyword">let</span> plan <span class="hljs-operator">=</span> makeOutputPlan(
+        source: source, outputFolder: outputFolder, formats: formats,
+        model: <span class="hljs-keyword">await</span> engine.modelName, modelRevision: <span class="hljs-keyword">await</span> engine.modelRevision)</pre></div>
+        
+      
+        
+        <p>Call the actual function to transcribe</p>
+
+        
+          <div class='highlight'><pre>    <span class="hljs-keyword">let</span> (results, run) <span class="hljs-operator">=</span> <span class="hljs-keyword">try</span> <span class="hljs-keyword">await</span> transcribeDocument(
+        engine: engine, source: source, pages: pages, tokenLimit: tokenLimit,
+        stopOnRepetition: stopOnRepetition</pre></div>
+        
+      
+        
+        <p>Respond to various events, such as new attempts, flagged problems, or finishing the page.</p>
+
+        
+          <div class='highlight'><pre>    ) { event <span class="hljs-keyword">in</span>
+        <span class="hljs-keyword">switch</span> event {
+        <span class="hljs-keyword">case</span> .started, .tokens:
+            <span class="hljs-keyword">break</span>
+        <span class="hljs-keyword">case</span> .attempt(<span class="hljs-keyword">let</span> attempt):
+            <span class="hljs-keyword">if</span> attempt.number <span class="hljs-operator">&gt;</span> <span class="hljs-number">1</span> {
+                <span class="hljs-keyword">var</span> line <span class="hljs-operator">=</span> <span class="hljs-string">&quot;  p. <span class="hljs-subst">\(attempt.page)</span> attempt <span class="hljs-subst">\(attempt.number)</span> of <span class="hljs-subst">\(attempt.total)</span> at temperature <span class="hljs-subst">\(attempt.temperature)</span>&quot;</span>
+                <span class="hljs-keyword">if</span> attempt.rotation <span class="hljs-operator">!=</span> <span class="hljs-number">0</span> {
+                    line <span class="hljs-operator">+=</span> <span class="hljs-string">&quot;, rotated <span class="hljs-subst">\(attempt.rotation)</span>°&quot;</span>
+                }
+                <span class="hljs-keyword">if</span> <span class="hljs-keyword">let</span> problem <span class="hljs-operator">=</span> attempt.previousProblem {
+                    line <span class="hljs-operator">+=</span> <span class="hljs-string">&quot; (previous attempt: <span class="hljs-subst">\(problem)</span>)&quot;</span>
+                }
+                <span class="hljs-built_in">print</span>(line)
+            }</pre></div>
+        
+      
+        
+        <p>What to do if finished, report whether was already done from cache, or otherwise how long it took, whether page needed rotating, and whether needs checking.</p>
+
+        
+          <div class='highlight'><pre>        <span class="hljs-keyword">case</span> .finished(<span class="hljs-keyword">let</span> result, <span class="hljs-keyword">let</span> index, <span class="hljs-keyword">let</span> total, <span class="hljs-keyword">let</span> fromCache):
+            <span class="hljs-keyword">var</span> line <span class="hljs-operator">=</span> <span class="hljs-type">String</span>(format: <span class="hljs-string">&quot;  p. %d (%d/%d) &quot;</span>, result.page, index <span class="hljs-operator">+</span> <span class="hljs-number">1</span>, total)
+            <span class="hljs-keyword">if</span> fromCache {
+                line <span class="hljs-operator">+=</span> <span class="hljs-string">&quot;from cache&quot;</span>
+            } <span class="hljs-keyword">else</span> {
+                line <span class="hljs-operator">+=</span> <span class="hljs-type">String</span>(format: <span class="hljs-string">&quot;%.1f s, %d tokens, attempt %d&quot;</span>, result.seconds, result.outputTokens, result.attempts)
+            }
+            <span class="hljs-keyword">if</span> result.rotation <span class="hljs-operator">!=</span> <span class="hljs-number">0</span> {
+                line <span class="hljs-operator">+=</span> <span class="hljs-string">&quot;, rotated <span class="hljs-subst">\(result.rotation)</span>°&quot;</span>
+            }
+            <span class="hljs-keyword">if</span> result.needsChecking {
+                line <span class="hljs-operator">+=</span> <span class="hljs-string">&quot; NEEDS CHECKING: <span class="hljs-subst">\(result.problem <span class="hljs-operator">??</span> <span class="hljs-string">&quot;&quot;</span>)</span>&quot;</span>
+            }
+            <span class="hljs-built_in">print</span>(line)
+            <span class="hljs-keyword">try?</span> writePageFile(result, source: source, plan: plan)
+        }
+    }</pre></div>
+        
+      
+        
+        <p>Write all the outputs of the OCR.</p>
+
+        
+          <div class='highlight'><pre>    <span class="hljs-keyword">let</span> exported <span class="hljs-operator">=</span> <span class="hljs-keyword">try</span> writeOutputs(results: results, run: run, source: source, plan: plan)
+    <span class="hljs-keyword">for</span> file <span class="hljs-keyword">in</span> exported.files {
+        <span class="hljs-built_in">print</span>(<span class="hljs-string">&quot;  wrote <span class="hljs-subst">\(file.path)</span>&quot;</span>)
+    }
+}</pre></div>
+        
+      
+      <div class="fleur">h</div>
+    </div>
+  </div>
+</body>
+</html>

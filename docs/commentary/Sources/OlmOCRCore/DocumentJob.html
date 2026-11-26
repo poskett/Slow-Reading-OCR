@@ -1,0 +1,323 @@
+<!DOCTYPE html>
+
+<html>
+<head>
+  <title>DocumentJob.swift</title>
+  <meta http-equiv="content-type" content="text/html; charset=UTF-8">
+  <link rel="stylesheet" media="all" href="public/stylesheets/normalize.css" />
+  <link rel="stylesheet" media="all" href="../../docco.css" />
+</head>
+<body>
+  <div class="container">
+    <div class="page">
+
+      <div class="header">
+        
+          <h1>DocumentJob.swift</h1>
+        
+
+        
+          <div class="toc">
+            <h3>Table of Contents</h3>
+            <ol>
+              
+                
+                <li>
+                  <a class="source" href="DocumentJob.html">
+                    Sources/OlmOCRCore/DocumentJob.swift
+                  </a>
+                </li>
+              
+                
+                <li>
+                  <a class="source" href="Exporters.html">
+                    Sources/OlmOCRCore/Exporters.swift
+                  </a>
+                </li>
+              
+                
+                <li>
+                  <a class="source" href="ModelDownloader.html">
+                    Sources/OlmOCRCore/ModelDownloader.swift
+                  </a>
+                </li>
+              
+                
+                <li>
+                  <a class="source" href="ModelStore.html">
+                    Sources/OlmOCRCore/ModelStore.swift
+                  </a>
+                </li>
+              
+                
+                <li>
+                  <a class="source" href="OCREngine.html">
+                    Sources/OlmOCRCore/OCREngine.swift
+                  </a>
+                </li>
+              
+                
+                <li>
+                  <a class="source" href="PageSource.html">
+                    Sources/OlmOCRCore/PageSource.swift
+                  </a>
+                </li>
+              
+                
+                <li>
+                  <a class="source" href="SystemCheck.html">
+                    Sources/OlmOCRCore/SystemCheck.swift
+                  </a>
+                </li>
+              
+                
+                <li>
+                  <a class="source" href="../olmocr/main.html">
+                    Sources/olmocr/main.swift
+                  </a>
+                </li>
+              
+            </ol>
+          </div>
+        
+      </div>
+
+      
+        
+        
+        
+          <div class='highlight'><pre><span class="hljs-comment">/* Declaration: Code generated using Anthropic Claude (Opus 5.5)*/</span></pre></div>
+        
+      
+        
+        <h3 id="code-commentary">Code Commentary</h3>
+<p>All commentary below was written manually by <a href="https://warwick.ac.uk/fac/arts/history/people/staff_index/poskett/">James Poskett</a> (University of Warwick).</p>
+<p>This commentary is for <a href="https://github.com/poskett/Slow-Reading-OCR/releases/tag/v1.1.1">v1.1.1</a>.</p>
+<h3 id="overview">Overview</h3>
+<p>This script defines a job (a document which might be made up of multiple pages) ready to be sent to the OCR model.</p>
+<h3 id="import-libraries">Import Libraries</h3>
+<p>Here we just need CryptoKit for hashing and Foundation for basic read/write and file handling.</p>
+
+        
+          <div class='highlight'><pre><span class="hljs-keyword">import</span> CryptoKit
+<span class="hljs-keyword">import</span> Foundation</pre></div>
+        
+      
+        
+        <h3 id="variables">Variables</h3>
+<p>Set the app version.</p>
+
+        
+          <div class='highlight'><pre>
+<span class="hljs-keyword">public</span> <span class="hljs-keyword">let</span> appVersion <span class="hljs-operator">=</span> <span class="hljs-string">&quot;1.1.1&quot;</span></pre></div>
+        
+      
+        
+        <p>Define all the variables we need to start a run.</p>
+
+        
+          <div class='highlight'><pre><span class="hljs-keyword">public</span> <span class="hljs-keyword">struct</span> <span class="hljs-title class_">DocumentRun</span>: <span class="hljs-title class_">Codable</span>, <span class="hljs-title class_">Sendable</span> {
+    <span class="hljs-keyword">public</span> <span class="hljs-keyword">var</span> source: <span class="hljs-type">String</span>
+    <span class="hljs-keyword">public</span> <span class="hljs-keyword">var</span> sourceKind: <span class="hljs-type">SourceKind</span>
+    <span class="hljs-keyword">public</span> <span class="hljs-keyword">var</span> totalPages: <span class="hljs-type">Int</span>
+    <span class="hljs-keyword">public</span> <span class="hljs-keyword">var</span> pagesProcessed: [<span class="hljs-type">Int</span>]
+    <span class="hljs-keyword">public</span> <span class="hljs-keyword">var</span> pagesNeedingChecking: [<span class="hljs-type">Int</span>]
+    <span class="hljs-keyword">public</span> <span class="hljs-keyword">var</span> fallbackPages: [<span class="hljs-type">Int</span>]
+    <span class="hljs-keyword">public</span> <span class="hljs-keyword">var</span> model: <span class="hljs-type">String</span>
+    <span class="hljs-keyword">public</span> <span class="hljs-keyword">var</span> modelRevision: <span class="hljs-type">String</span>?
+    <span class="hljs-keyword">public</span> <span class="hljs-keyword">var</span> promptVersion: <span class="hljs-type">String</span>
+    <span class="hljs-keyword">public</span> <span class="hljs-keyword">var</span> imageLongestSide: <span class="hljs-type">Int</span>
+    <span class="hljs-keyword">public</span> <span class="hljs-keyword">var</span> temperatureByAttempt: [<span class="hljs-type">Float</span>]
+    <span class="hljs-keyword">public</span> <span class="hljs-keyword">var</span> maxTokens: <span class="hljs-type">Int</span>
+    <span class="hljs-keyword">public</span> <span class="hljs-keyword">var</span> stopOnRepetition: <span class="hljs-type">Bool</span>?
+    <span class="hljs-keyword">public</span> <span class="hljs-keyword">var</span> appVersion: <span class="hljs-type">String</span>
+    <span class="hljs-keyword">public</span> <span class="hljs-keyword">var</span> started: <span class="hljs-type">Date</span>
+    <span class="hljs-keyword">public</span> <span class="hljs-keyword">var</span> finished: <span class="hljs-type">Date</span>
+    <span class="hljs-keyword">public</span> <span class="hljs-keyword">var</span> totalInputTokens: <span class="hljs-type">Int</span>
+    <span class="hljs-keyword">public</span> <span class="hljs-keyword">var</span> totalOutputTokens: <span class="hljs-type">Int</span>
+}</pre></div>
+        
+      
+        
+        <h3 id="page-range">Page Range</h3>
+<p>A simple function to clean page ranges, normalising dashes, commas, whitespace and alike.</p>
+
+        
+          <div class='highlight'><pre><span class="hljs-keyword">public</span> <span class="hljs-keyword">func</span> <span class="hljs-title function_">parsePageRange</span>(<span class="hljs-keyword">_</span> <span class="hljs-params">text</span>: <span class="hljs-type">String</span>, <span class="hljs-params">pageCount</span>: <span class="hljs-type">Int</span>) -&gt; [<span class="hljs-type">Int</span>]<span class="hljs-operator">?</span> {
+    <span class="hljs-keyword">var</span> pages: [<span class="hljs-type">Int</span>] <span class="hljs-operator">=</span> []
+    <span class="hljs-keyword">var</span> cleaned <span class="hljs-operator">=</span> text
+    <span class="hljs-keyword">for</span> dash <span class="hljs-keyword">in</span> [<span class="hljs-string">&quot;–&quot;</span>, <span class="hljs-string">&quot;—&quot;</span>, <span class="hljs-string">&quot;‒&quot;</span>, <span class="hljs-string">&quot;−&quot;</span>, <span class="hljs-string">&quot;‑&quot;</span>] {
+        cleaned <span class="hljs-operator">=</span> cleaned.replacingOccurrences(of: dash, with: <span class="hljs-string">&quot;-&quot;</span>)
+    }
+    cleaned <span class="hljs-operator">=</span> cleaned.replacingOccurrences(of: <span class="hljs-string">&quot;;&quot;</span>, with: <span class="hljs-string">&quot;,&quot;</span>)
+    <span class="hljs-keyword">for</span> part <span class="hljs-keyword">in</span> cleaned.split(separator: <span class="hljs-string">&quot;,&quot;</span>) {
+        <span class="hljs-keyword">let</span> bounds <span class="hljs-operator">=</span> part.split(separator: <span class="hljs-string">&quot;-&quot;</span>, omittingEmptySubsequences: <span class="hljs-literal">false</span>)
+            .map { <span class="hljs-variable">$0</span>.trimmingCharacters(in: .whitespaces) }
+        <span class="hljs-keyword">if</span> bounds.count <span class="hljs-operator">==</span> <span class="hljs-number">1</span>, <span class="hljs-keyword">let</span> page <span class="hljs-operator">=</span> <span class="hljs-type">Int</span>(bounds[<span class="hljs-number">0</span>]) {
+            pages.append(page)
+        } <span class="hljs-keyword">else</span> <span class="hljs-keyword">if</span> bounds.count <span class="hljs-operator">==</span> <span class="hljs-number">2</span> {
+            <span class="hljs-keyword">let</span> first <span class="hljs-operator">=</span> <span class="hljs-type">Int</span>(bounds[<span class="hljs-number">0</span>]) <span class="hljs-operator">??</span> <span class="hljs-number">1</span>
+            <span class="hljs-keyword">let</span> last <span class="hljs-operator">=</span> bounds[<span class="hljs-number">1</span>].isEmpty <span class="hljs-operator">?</span> pageCount : (<span class="hljs-type">Int</span>(bounds[<span class="hljs-number">1</span>]) <span class="hljs-operator">??</span> <span class="hljs-operator">-</span><span class="hljs-number">1</span>)
+            <span class="hljs-keyword">guard</span> first <span class="hljs-operator">&lt;=</span> last <span class="hljs-keyword">else</span> {
+                <span class="hljs-keyword">return</span> <span class="hljs-literal">nil</span>
+            }
+            pages.append(contentsOf: first<span class="hljs-operator">...</span>last)
+        } <span class="hljs-keyword">else</span> {
+            <span class="hljs-keyword">return</span> <span class="hljs-literal">nil</span>
+        }
+    }
+    <span class="hljs-keyword">let</span> valid <span class="hljs-operator">=</span> pages.filter { <span class="hljs-variable">$0</span> <span class="hljs-operator">&gt;=</span> <span class="hljs-number">1</span> <span class="hljs-operator">&amp;&amp;</span> <span class="hljs-variable">$0</span> <span class="hljs-operator">&lt;=</span> pageCount }
+    <span class="hljs-keyword">guard</span> <span class="hljs-operator">!</span>valid.isEmpty <span class="hljs-keyword">else</span> {
+        <span class="hljs-keyword">return</span> <span class="hljs-literal">nil</span>
+    }
+    <span class="hljs-keyword">var</span> seen <span class="hljs-operator">=</span> <span class="hljs-type">Set</span>&lt;<span class="hljs-type">Int</span>&gt;()
+    <span class="hljs-keyword">return</span> valid.filter { seen.insert(<span class="hljs-variable">$0</span>).inserted }
+}</pre></div>
+        
+      
+        
+        <h2 id="caching">Caching</h2>
+<p>For a document with multiple pages, the following functions save the results of each page to a local cache. This means if the job is paused or interrupted, it can pick up from where it left off.</p>
+
+        
+          <div class='highlight'><pre><span class="hljs-keyword">public</span> <span class="hljs-keyword">func</span> <span class="hljs-title function_">cacheDirectory</span>(<span class="hljs-params">for</span> <span class="hljs-params">source</span>: <span class="hljs-type">PageSource</span>, <span class="hljs-params">modelName</span>: <span class="hljs-type">String</span>) -&gt; <span class="hljs-type">URL</span> {
+    <span class="hljs-keyword">let</span> attributes <span class="hljs-operator">=</span> <span class="hljs-keyword">try?</span> <span class="hljs-type">FileManager</span>.default.attributesOfItem(atPath: source.url.path)
+    <span class="hljs-keyword">let</span> size <span class="hljs-operator">=</span> (attributes<span class="hljs-operator">?</span>[.size] <span class="hljs-keyword">as?</span> <span class="hljs-type">NSNumber</span>)<span class="hljs-operator">?</span>.int64Value <span class="hljs-operator">??</span> <span class="hljs-number">0</span>
+    <span class="hljs-keyword">let</span> modified <span class="hljs-operator">=</span> (attributes<span class="hljs-operator">?</span>[.modificationDate] <span class="hljs-keyword">as?</span> <span class="hljs-type">Date</span>)<span class="hljs-operator">?</span>.timeIntervalSince1970 <span class="hljs-operator">??</span> <span class="hljs-number">0</span>
+    <span class="hljs-keyword">let</span> key <span class="hljs-operator">=</span> <span class="hljs-string">&quot;<span class="hljs-subst">\(source.url.standardizedFileURL.path)</span>|<span class="hljs-subst">\(size)</span>|<span class="hljs-subst">\(modified)</span>|<span class="hljs-subst">\(source.pageCount)</span>|<span class="hljs-subst">\(modelName)</span>|<span class="hljs-subst">\(promptVersion)</span>&quot;</span>
+    <span class="hljs-keyword">let</span> digest <span class="hljs-operator">=</span> <span class="hljs-type">SHA256</span>.hash(data: <span class="hljs-type">Data</span>(key.utf8)).map { <span class="hljs-type">String</span>(format: <span class="hljs-string">&quot;%02x&quot;</span>, <span class="hljs-variable">$0</span>) }.joined()
+    <span class="hljs-keyword">return</span> <span class="hljs-type">ModelStore</span>.jobsDirectory
+        .appendingPathComponent(<span class="hljs-type">String</span>(digest.prefix(<span class="hljs-number">16</span>)), isDirectory: <span class="hljs-literal">true</span>)
+}</pre></div>
+        
+      
+        
+        <p>Where the cached page is.</p>
+
+        
+          <div class='highlight'><pre><span class="hljs-keyword">func</span> <span class="hljs-title function_">cachedPageURL</span>(<span class="hljs-keyword">_</span> <span class="hljs-params">directory</span>: <span class="hljs-type">URL</span>, <span class="hljs-params">page</span>: <span class="hljs-type">Int</span>) -&gt; <span class="hljs-type">URL</span> {
+    directory.appendingPathComponent(<span class="hljs-type">String</span>(format: <span class="hljs-string">&quot;page_%05d.json&quot;</span>, page))
+}</pre></div>
+        
+      
+        
+        <p>As the function suggests, load the cached page</p>
+
+        
+          <div class='highlight'><pre><span class="hljs-keyword">public</span> <span class="hljs-keyword">func</span> <span class="hljs-title function_">loadCachedPage</span>(<span class="hljs-keyword">_</span> <span class="hljs-params">directory</span>: <span class="hljs-type">URL</span>, <span class="hljs-params">page</span>: <span class="hljs-type">Int</span>) -&gt; <span class="hljs-type">PageResult</span>? {
+    <span class="hljs-keyword">guard</span> <span class="hljs-keyword">let</span> data <span class="hljs-operator">=</span> <span class="hljs-keyword">try?</span> <span class="hljs-type">Data</span>(contentsOf: cachedPageURL(directory, page: page)) <span class="hljs-keyword">else</span> {
+        <span class="hljs-keyword">return</span> <span class="hljs-literal">nil</span>
+    }</pre></div>
+        
+      
+        
+        <p>Decode the JSON output of the cached page</p>
+
+        
+          <div class='highlight'><pre>    <span class="hljs-keyword">return</span> <span class="hljs-keyword">try?</span> <span class="hljs-type">JSONDecoder</span>().decode(<span class="hljs-type">PageResult</span>.<span class="hljs-keyword">self</span>, from: data)
+}</pre></div>
+        
+      
+        
+        <p>Save the cached page, encoding the JSON output.</p>
+
+        
+          <div class='highlight'><pre><span class="hljs-keyword">public</span> <span class="hljs-keyword">func</span> <span class="hljs-title function_">saveCachedPage</span>(<span class="hljs-keyword">_</span> <span class="hljs-params">result</span>: <span class="hljs-type">PageResult</span>, <span class="hljs-params">directory</span>: <span class="hljs-type">URL</span>) <span class="hljs-keyword">throws</span> {
+    <span class="hljs-keyword">try</span> <span class="hljs-type">FileManager</span>.default.createDirectory(at: directory, withIntermediateDirectories: <span class="hljs-literal">true</span>)
+    <span class="hljs-keyword">let</span> data <span class="hljs-operator">=</span> <span class="hljs-keyword">try</span> <span class="hljs-type">JSONEncoder</span>().encode(result)
+    <span class="hljs-keyword">try</span> data.write(to: cachedPageURL(directory, page: result.page), options: .atomic)
+}</pre></div>
+        
+      
+        
+        <h3 id="page-events">Page Events</h3>
+<p>A simple enum to define events related to the page.</p>
+
+        
+          <div class='highlight'><pre><span class="hljs-keyword">public</span> <span class="hljs-keyword">enum</span> <span class="hljs-title class_">PageEvent</span>: <span class="hljs-title class_">Sendable</span> {
+    <span class="hljs-keyword">case</span> started(page: <span class="hljs-type">Int</span>, index: <span class="hljs-type">Int</span>, total: <span class="hljs-type">Int</span>)
+    <span class="hljs-keyword">case</span> attempt(<span class="hljs-type">PageAttempt</span>)
+    <span class="hljs-keyword">case</span> tokens(page: <span class="hljs-type">Int</span>, count: <span class="hljs-type">Int</span>)
+    <span class="hljs-keyword">case</span> finished(result: <span class="hljs-type">PageResult</span>, index: <span class="hljs-type">Int</span>, total: <span class="hljs-type">Int</span>, fromCache: <span class="hljs-type">Bool</span>)
+}</pre></div>
+        
+      
+        
+        <h2 id="transcribe">Transcribe</h2>
+<p>This is the core function which imports the <a href="OCREngine.html">OCREngine</a> (see for details). It sends the source page to the OCR for transcription. This function also deals with the caching, picking up the saved cache where available and going from there.</p>
+
+        
+          <div class='highlight'><pre><span class="hljs-keyword">public</span> <span class="hljs-keyword">func</span> <span class="hljs-title function_">transcribeDocument</span>(
+    <span class="hljs-params">engine</span>: <span class="hljs-type">OCREngine</span>,
+    <span class="hljs-params">source</span>: <span class="hljs-type">PageSource</span>,
+    <span class="hljs-params">pages</span>: [<span class="hljs-type">Int</span>],
+    <span class="hljs-params">tokenLimit</span>: <span class="hljs-type">Int</span> <span class="hljs-operator">=</span> defaultTokenLimit,
+    <span class="hljs-params">stopOnRepetition</span>: <span class="hljs-type">Bool</span> <span class="hljs-operator">=</span> <span class="hljs-literal">true</span>,
+    <span class="hljs-params">onEvent</span>: <span class="hljs-keyword">@escaping</span> <span class="hljs-meta">@Sendable</span> (<span class="hljs-type">PageEvent</span>) -&gt; <span class="hljs-type">Void</span>
+) <span class="hljs-keyword">async</span> <span class="hljs-keyword">throws</span> -&gt; (results: [<span class="hljs-type">PageResult</span>], run: <span class="hljs-type">DocumentRun</span>) {
+    <span class="hljs-keyword">let</span> started <span class="hljs-operator">=</span> <span class="hljs-type">Date</span>()
+    <span class="hljs-keyword">let</span> modelName <span class="hljs-operator">=</span> <span class="hljs-keyword">await</span> engine.modelName
+    <span class="hljs-keyword">let</span> cache <span class="hljs-operator">=</span> cacheDirectory(for: source, modelName: modelName <span class="hljs-operator">+</span> (<span class="hljs-keyword">await</span> engine.modelRevision <span class="hljs-operator">??</span> <span class="hljs-string">&quot;&quot;</span>))
+    <span class="hljs-keyword">var</span> results: [<span class="hljs-type">PageResult</span>] <span class="hljs-operator">=</span> []
+
+    <span class="hljs-keyword">for</span> (index, page) <span class="hljs-keyword">in</span> pages.enumerated() {
+        <span class="hljs-keyword">try</span> <span class="hljs-type">Task</span>.checkCancellation()
+        <span class="hljs-keyword">if</span> <span class="hljs-keyword">let</span> cached <span class="hljs-operator">=</span> loadCachedPage(cache, page: page),
+            <span class="hljs-operator">!</span>(cached.needsChecking <span class="hljs-operator">&amp;&amp;</span> (cached.tokenLimit <span class="hljs-operator">??</span> maxTokens) <span class="hljs-operator">&lt;</span> tokenLimit)
+        {
+            results.append(cached)
+            onEvent(.finished(result: cached, index: index, total: pages.count, fromCache: <span class="hljs-literal">true</span>))
+            <span class="hljs-keyword">continue</span>
+        }
+        onEvent(.started(page: page, index: index, total: pages.count))
+        <span class="hljs-keyword">let</span> image <span class="hljs-operator">=</span> <span class="hljs-keyword">try</span> source.render(page: page)
+        <span class="hljs-keyword">var</span> result <span class="hljs-operator">=</span> <span class="hljs-keyword">try</span> <span class="hljs-keyword">await</span> engine.processPage(
+            image: image, page: page, fallbackText: source.embeddedText(page: page), tokenLimit: tokenLimit,
+            stopOnRepetition: stopOnRepetition
+        ) { attempt <span class="hljs-keyword">in</span>
+            onEvent(.attempt(attempt))
+        } onTokens: { count <span class="hljs-keyword">in</span>
+            onEvent(.tokens(page: page, count: count))
+        }
+        result.finishedAt <span class="hljs-operator">=</span> <span class="hljs-type">Date</span>()
+        result.tokenLimit <span class="hljs-operator">=</span> tokenLimit
+        result.stopOnRepetition <span class="hljs-operator">=</span> stopOnRepetition
+        <span class="hljs-keyword">try</span> saveCachedPage(result, directory: cache)
+        results.append(result)
+        onEvent(.finished(result: result, index: index, total: pages.count, fromCache: <span class="hljs-literal">false</span>))
+    }</pre></div>
+        
+      
+        
+        <p>When everything is done, define a DocumentRun with all the information about that run. This is returned along with the result of the OCR.</p>
+
+        
+          <div class='highlight'><pre>    <span class="hljs-keyword">let</span> run <span class="hljs-operator">=</span> <span class="hljs-type">DocumentRun</span>(
+        source: source.url.path,
+        sourceKind: source.kind,
+        totalPages: source.pageCount,
+        pagesProcessed: pages,
+        pagesNeedingChecking: results.filter(\.needsChecking).map(\.page),
+        fallbackPages: results.filter(\.isFallback).map(\.page),
+        model: modelName,
+        modelRevision: <span class="hljs-keyword">await</span> engine.modelRevision,
+        promptVersion: promptVersion,
+        imageLongestSide: <span class="hljs-type">Int</span>(targetLongestSide),
+        temperatureByAttempt: temperatureByAttempt,
+        maxTokens: tokenLimit,
+        stopOnRepetition: stopOnRepetition,
+        appVersion: appVersion,
+        started: started,
+        finished: <span class="hljs-type">Date</span>(),
+        totalInputTokens: results.reduce(<span class="hljs-number">0</span>) { <span class="hljs-variable">$0</span> <span class="hljs-operator">+</span> <span class="hljs-variable">$1</span>.inputTokens },
+        totalOutputTokens: results.reduce(<span class="hljs-number">0</span>) { <span class="hljs-variable">$0</span> <span class="hljs-operator">+</span> <span class="hljs-variable">$1</span>.outputTokens }
+    )
+    <span class="hljs-keyword">return</span> (results, run)
+}</pre></div>
+        
+      
+      <div class="fleur">h</div>
+    </div>
+  </div>
+</body>
+</html>

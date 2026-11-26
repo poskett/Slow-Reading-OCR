@@ -1,0 +1,682 @@
+<!DOCTYPE html>
+
+<html>
+<head>
+  <title>Exporters.swift</title>
+  <meta http-equiv="content-type" content="text/html; charset=UTF-8">
+  <link rel="stylesheet" media="all" href="public/stylesheets/normalize.css" />
+  <link rel="stylesheet" media="all" href="../../docco.css" />
+</head>
+<body>
+  <div class="container">
+    <div class="page">
+
+      <div class="header">
+        
+          <h1>Exporters.swift</h1>
+        
+
+        
+          <div class="toc">
+            <h3>Table of Contents</h3>
+            <ol>
+              
+                
+                <li>
+                  <a class="source" href="DocumentJob.html">
+                    Sources/OlmOCRCore/DocumentJob.swift
+                  </a>
+                </li>
+              
+                
+                <li>
+                  <a class="source" href="Exporters.html">
+                    Sources/OlmOCRCore/Exporters.swift
+                  </a>
+                </li>
+              
+                
+                <li>
+                  <a class="source" href="ModelDownloader.html">
+                    Sources/OlmOCRCore/ModelDownloader.swift
+                  </a>
+                </li>
+              
+                
+                <li>
+                  <a class="source" href="ModelStore.html">
+                    Sources/OlmOCRCore/ModelStore.swift
+                  </a>
+                </li>
+              
+                
+                <li>
+                  <a class="source" href="OCREngine.html">
+                    Sources/OlmOCRCore/OCREngine.swift
+                  </a>
+                </li>
+              
+                
+                <li>
+                  <a class="source" href="PageSource.html">
+                    Sources/OlmOCRCore/PageSource.swift
+                  </a>
+                </li>
+              
+                
+                <li>
+                  <a class="source" href="SystemCheck.html">
+                    Sources/OlmOCRCore/SystemCheck.swift
+                  </a>
+                </li>
+              
+                
+                <li>
+                  <a class="source" href="../olmocr/main.html">
+                    Sources/olmocr/main.swift
+                  </a>
+                </li>
+              
+            </ol>
+          </div>
+        
+      </div>
+
+      
+        
+        <h3 id="code-commentary">Code Commentary</h3>
+<p>All commentary below was written manually by <a href="https://warwick.ac.uk/fac/arts/history/people/staff_index/poskett/">James Poskett</a> (University of Warwick).</p>
+<p>This commentary is for <a href="https://github.com/poskett/Slow-Reading-OCR/releases/tag/v1.1.1">v1.1.1</a>.</p>
+<h3 id="overview">Overview</h3>
+<p>This script defines all the functions for saving the output of the run to a file. That includes either plain text or Markdown as well as the manifest.csv. It also makes sure we don’t overwrite files that weren’t created by the app.</p>
+<h3 id="import-libraries">Import Libraries</h3>
+<p>Here we just need CryptoKit for hashing and Foundation for basic read/write and file handling.</p>
+
+        
+          <div class='highlight'><pre>
+<span class="hljs-keyword">import</span> CryptoKit
+<span class="hljs-keyword">import</span> Foundation</pre></div>
+        
+      
+        
+        <h3 id="variables">Variables</h3>
+<p>Define the basic variables, particularly an enum so we decide if a text, markdown, jsonl, manifest, or list of pages.</p>
+
+        
+          <div class='highlight'><pre><span class="hljs-keyword">public</span> <span class="hljs-keyword">enum</span> <span class="hljs-title class_">OutputFormat</span>: <span class="hljs-title class_">String</span>, <span class="hljs-title class_">CaseIterable</span>, <span class="hljs-title class_">Codable</span>, <span class="hljs-title class_">Sendable</span> {
+    <span class="hljs-keyword">case</span> markdown
+    <span class="hljs-keyword">case</span> text
+    <span class="hljs-keyword">case</span> pages
+    <span class="hljs-keyword">case</span> jsonl
+    <span class="hljs-keyword">case</span> manifest
+}</pre></div>
+        
+      
+        
+        <p>The location of exported files.</p>
+
+        
+          <div class='highlight'><pre><span class="hljs-keyword">public</span> <span class="hljs-keyword">struct</span> <span class="hljs-title class_">ExportedFiles</span>: <span class="hljs-title class_">Sendable</span> {
+    <span class="hljs-keyword">public</span> <span class="hljs-keyword">var</span> files: [<span class="hljs-type">URL</span>]
+}</pre></div>
+        
+      
+        
+        <h3 id="functions">Functions</h3>
+<p>This function defines a page marker in the form of &lt;!– p. –!&gt;
+It also some information about blank pages and pages that need checking.</p>
+
+        
+          <div class='highlight'><pre><span class="hljs-keyword">func</span> <span class="hljs-title function_">pageMarker</span>(<span class="hljs-keyword">_</span> <span class="hljs-params">result</span>: <span class="hljs-type">PageResult</span>, <span class="hljs-params">label</span>: <span class="hljs-type">String</span>) -&gt; <span class="hljs-type">String</span> {
+    <span class="hljs-keyword">var</span> marker <span class="hljs-operator">=</span> <span class="hljs-string">&quot;&lt;!-- p. <span class="hljs-subst">\(result.page)</span>&quot;</span>
+    <span class="hljs-keyword">if</span> label <span class="hljs-operator">!=</span> <span class="hljs-string">&quot;<span class="hljs-subst">\(result.page)</span>&quot;</span> {
+        marker <span class="hljs-operator">+=</span> <span class="hljs-string">&quot;, <span class="hljs-subst">\(label)</span>&quot;</span>
+    }
+    <span class="hljs-keyword">if</span> result.response.naturalText <span class="hljs-operator">==</span> <span class="hljs-literal">nil</span> {
+        marker <span class="hljs-operator">+=</span> <span class="hljs-string">&quot;, blank&quot;</span>
+    }
+    <span class="hljs-keyword">if</span> result.needsChecking {
+        marker <span class="hljs-operator">+=</span> <span class="hljs-string">&quot;, NEEDS CHECKING: <span class="hljs-subst">\(result.problem <span class="hljs-operator">??</span> <span class="hljs-string">&quot;uncertain result&quot;</span>)</span>&quot;</span>
+    }
+    <span class="hljs-keyword">return</span> marker <span class="hljs-operator">+</span> <span class="hljs-string">&quot; --&gt;&quot;</span>
+}</pre></div>
+        
+      
+        
+        <p>This creates a markdown document of all the pages together, with the markers appended, and a double new line separator.</p>
+
+        
+          <div class='highlight'><pre><span class="hljs-keyword">public</span> <span class="hljs-keyword">func</span> <span class="hljs-title function_">markdownDocument</span>(<span class="hljs-keyword">_</span> <span class="hljs-params">results</span>: [<span class="hljs-type">PageResult</span>], <span class="hljs-params">source</span>: <span class="hljs-type">PageSource</span>) -&gt; <span class="hljs-type">String</span> {
+    results.map { result <span class="hljs-keyword">in</span>
+        <span class="hljs-keyword">let</span> marker <span class="hljs-operator">=</span> pageMarker(result, label: source.pageLabel(result.page))
+        <span class="hljs-keyword">guard</span> <span class="hljs-keyword">let</span> text <span class="hljs-operator">=</span> result.response.naturalText <span class="hljs-keyword">else</span> {
+            <span class="hljs-keyword">return</span> marker
+        }
+        <span class="hljs-keyword">return</span> marker <span class="hljs-operator">+</span> <span class="hljs-string">&quot;<span class="hljs-subst">\n</span><span class="hljs-subst">\n</span>&quot;</span> <span class="hljs-operator">+</span> text
+    }.joined(separator: <span class="hljs-string">&quot;<span class="hljs-subst">\n</span><span class="hljs-subst">\n</span>&quot;</span>) <span class="hljs-operator">+</span> <span class="hljs-string">&quot;<span class="hljs-subst">\n</span>&quot;</span>
+}</pre></div>
+        
+      
+        
+        <p>If we just want plain text, this strips most of the Markdown.</p>
+
+        
+          <div class='highlight'><pre><span class="hljs-keyword">public</span> <span class="hljs-keyword">func</span> <span class="hljs-title function_">plainText</span>(<span class="hljs-params">fromMarkdown</span> <span class="hljs-params">markdown</span>: <span class="hljs-type">String</span>) -&gt; <span class="hljs-type">String</span> {
+    <span class="hljs-keyword">var</span> text <span class="hljs-operator">=</span> markdown
+    <span class="hljs-keyword">let</span> replacements: [(<span class="hljs-type">String</span>, <span class="hljs-type">String</span>)] <span class="hljs-operator">=</span> [
+        (<span class="hljs-string">#&quot;!\[([^\]]*)\]\([^)]*\)&quot;#</span>, <span class="hljs-string">&quot;[Figure: $1]&quot;</span>),
+        (<span class="hljs-string">#&quot;\[([^\]]+)\]\([^)]*\)&quot;#</span>, <span class="hljs-string">&quot;$1&quot;</span>),
+        (<span class="hljs-string">#&quot;(?m)^#{1,6}\s+&quot;#</span>, <span class="hljs-string">&quot;&quot;</span>),
+        (<span class="hljs-string">#&quot;\*\*([^*]+)\*\*&quot;#</span>, <span class="hljs-string">&quot;$1&quot;</span>),
+        (<span class="hljs-string">#&quot;(?&lt;![\w*])\*([^*\n]+)\*(?![\w*])&quot;#</span>, <span class="hljs-string">&quot;$1&quot;</span>),
+        (<span class="hljs-string">#&quot;(?&lt;![\w_])_([^_\n]+)_(?![\w_])&quot;#</span>, <span class="hljs-string">&quot;$1&quot;</span>),
+        (<span class="hljs-string">#&quot;(?m)^&gt;\s?&quot;#</span>, <span class="hljs-string">&quot;&quot;</span>),
+        (<span class="hljs-string">#&quot;&lt;/?(?:table|thead|tbody|tr)[^&gt;]*&gt;&quot;#</span>, <span class="hljs-string">&quot;<span class="hljs-subst">\n</span>&quot;</span>),
+        (<span class="hljs-string">#&quot;&lt;/t[hd]&gt;&quot;#</span>, <span class="hljs-string">&quot;<span class="hljs-subst">\t</span>&quot;</span>),
+        (<span class="hljs-string">#&quot;&lt;[^&gt;]+&gt;&quot;#</span>, <span class="hljs-string">&quot;&quot;</span>),
+        (<span class="hljs-string">#&quot;\n{3,}&quot;#</span>, <span class="hljs-string">&quot;<span class="hljs-subst">\n</span><span class="hljs-subst">\n</span>&quot;</span>),
+    ]
+    <span class="hljs-keyword">for</span> (pattern, template) <span class="hljs-keyword">in</span> replacements {
+        text <span class="hljs-operator">=</span> text.replacingOccurrences(of: pattern, with: template, options: .regularExpression)
+    }
+    <span class="hljs-keyword">return</span> text
+}</pre></div>
+        
+      
+        
+        <p>This creates a plain text document of all the pages together, stripping the markdown and adding a page number header plus a double line break.</p>
+
+        
+          <div class='highlight'><pre><span class="hljs-keyword">public</span> <span class="hljs-keyword">func</span> <span class="hljs-title function_">plainTextDocument</span>(<span class="hljs-keyword">_</span> <span class="hljs-params">results</span>: [<span class="hljs-type">PageResult</span>], <span class="hljs-params">source</span>: <span class="hljs-type">PageSource</span>) -&gt; <span class="hljs-type">String</span> {
+    results.map { result <span class="hljs-keyword">in</span>
+        <span class="hljs-keyword">var</span> header <span class="hljs-operator">=</span> <span class="hljs-string">&quot;[p. <span class="hljs-subst">\(result.page)</span>&quot;</span>
+        <span class="hljs-keyword">if</span> source.kind <span class="hljs-operator">==</span> .folder {
+            header <span class="hljs-operator">+=</span> <span class="hljs-string">&quot;, <span class="hljs-subst">\(source.pageLabel(result.page))</span>&quot;</span>
+        }
+        <span class="hljs-keyword">if</span> result.needsChecking {
+            header <span class="hljs-operator">+=</span> <span class="hljs-string">&quot;, NEEDS CHECKING&quot;</span>
+        }
+        header <span class="hljs-operator">+=</span> <span class="hljs-string">&quot;]&quot;</span>
+        <span class="hljs-keyword">return</span> header <span class="hljs-operator">+</span> <span class="hljs-string">&quot;<span class="hljs-subst">\n</span><span class="hljs-subst">\n</span>&quot;</span> <span class="hljs-operator">+</span> plainText(fromMarkdown: result.response.naturalText <span class="hljs-operator">??</span> <span class="hljs-string">&quot;&quot;</span>)
+    }.joined(separator: <span class="hljs-string">&quot;<span class="hljs-subst">\n</span><span class="hljs-subst">\n</span>&quot;</span>) <span class="hljs-operator">+</span> <span class="hljs-string">&quot;<span class="hljs-subst">\n</span>&quot;</span>
+}</pre></div>
+        
+      
+        
+        <p><a href="https://allenai.github.io/dolma/">Dolma</a> is a toolkit developed by Allen AI, the creators of olmOCR2. This function puts the output of the OCR into the exact same format as dolma in order to make it easier to use dolma toolkit functions.</p>
+
+        
+          <div class='highlight'><pre><span class="hljs-keyword">public</span> <span class="hljs-keyword">func</span> <span class="hljs-title function_">dolmaRecord</span>(<span class="hljs-keyword">_</span> <span class="hljs-params">results</span>: [<span class="hljs-type">PageResult</span>], <span class="hljs-params">run</span>: <span class="hljs-type">DocumentRun</span>) -&gt; [<span class="hljs-type">String</span>: <span class="hljs-keyword">Any</span>]<span class="hljs-operator">?</span> {
+    <span class="hljs-keyword">var</span> documentText <span class="hljs-operator">=</span> <span class="hljs-string">&quot;&quot;</span>
+    <span class="hljs-keyword">var</span> spans: [[<span class="hljs-type">Int</span>]] <span class="hljs-operator">=</span> []
+    <span class="hljs-keyword">for</span> (index, result) <span class="hljs-keyword">in</span> results.enumerated() {
+        <span class="hljs-keyword">let</span> start <span class="hljs-operator">=</span> documentText.unicodeScalars.count
+        <span class="hljs-keyword">if</span> <span class="hljs-keyword">let</span> text <span class="hljs-operator">=</span> result.response.naturalText {
+            documentText <span class="hljs-operator">+=</span> text <span class="hljs-operator">+</span> (index <span class="hljs-operator">&lt;</span> results.count <span class="hljs-operator">-</span> <span class="hljs-number">1</span> <span class="hljs-operator">?</span> <span class="hljs-string">&quot;<span class="hljs-subst">\n</span>&quot;</span> : <span class="hljs-string">&quot;&quot;</span>)
+        }
+        spans.append([start, documentText.unicodeScalars.count, result.page])
+    }
+    <span class="hljs-keyword">guard</span> <span class="hljs-operator">!</span>documentText.isEmpty <span class="hljs-keyword">else</span> {
+        <span class="hljs-keyword">return</span> <span class="hljs-literal">nil</span>
+    }
+    <span class="hljs-keyword">let</span> day <span class="hljs-operator">=</span> <span class="hljs-type">ISO8601DateFormatter</span>.string(from: run.finished, timeZone: .current, formatOptions: [.withFullDate])
+    <span class="hljs-keyword">let</span> id <span class="hljs-operator">=</span> <span class="hljs-type">Insecure</span>.<span class="hljs-type">SHA1</span>.hash(data: <span class="hljs-type">Data</span>(documentText.utf8)).map { <span class="hljs-type">String</span>(format: <span class="hljs-string">&quot;%02x&quot;</span>, <span class="hljs-variable">$0</span>) }.joined()
+    <span class="hljs-keyword">func</span> <span class="hljs-title function_">list</span>&lt;<span class="hljs-type">T</span>&gt;(<span class="hljs-keyword">_</span> <span class="hljs-params">value</span>: (<span class="hljs-type">PageResult</span>) -&gt; <span class="hljs-type">T</span>) -&gt; [<span class="hljs-keyword">Any</span>] { results.map { value(<span class="hljs-variable">$0</span>) <span class="hljs-keyword">as</span> <span class="hljs-keyword">Any</span> } }
+    <span class="hljs-keyword">return</span> [
+        <span class="hljs-string">&quot;id&quot;</span>: id,
+        <span class="hljs-string">&quot;text&quot;</span>: documentText,
+        <span class="hljs-string">&quot;source&quot;</span>: <span class="hljs-string">&quot;olmocr&quot;</span>,
+        <span class="hljs-string">&quot;added&quot;</span>: day,
+        <span class="hljs-string">&quot;created&quot;</span>: day,
+        <span class="hljs-string">&quot;metadata&quot;</span>: [
+            <span class="hljs-string">&quot;Source-File&quot;</span>: run.source,
+            <span class="hljs-string">&quot;olmocr-version&quot;</span>: <span class="hljs-string">&quot;olmocr-mac <span class="hljs-subst">\(run.appVersion)</span>&quot;</span>,
+            <span class="hljs-string">&quot;pdf-total-pages&quot;</span>: results.count,
+            <span class="hljs-string">&quot;total-input-tokens&quot;</span>: run.totalInputTokens,
+            <span class="hljs-string">&quot;total-output-tokens&quot;</span>: run.totalOutputTokens,
+            <span class="hljs-string">&quot;total-fallback-pages&quot;</span>: run.fallbackPages.count,
+            <span class="hljs-string">&quot;model&quot;</span>: run.model,
+        ],
+        <span class="hljs-string">&quot;attributes&quot;</span>: [
+            <span class="hljs-string">&quot;pdf_page_numbers&quot;</span>: spans,
+            <span class="hljs-string">&quot;primary_language&quot;</span>: results.map { (<span class="hljs-variable">$0</span>.response.primaryLanguage <span class="hljs-keyword">as</span> <span class="hljs-keyword">Any</span><span class="hljs-operator">?</span>) <span class="hljs-operator">??</span> <span class="hljs-type">NSNull</span>() },
+            <span class="hljs-string">&quot;is_rotation_valid&quot;</span>: list { <span class="hljs-variable">$0</span>.response.isRotationValid },
+            <span class="hljs-string">&quot;rotation_correction&quot;</span>: list { <span class="hljs-variable">$0</span>.response.rotationCorrection },
+            <span class="hljs-string">&quot;is_table&quot;</span>: list { <span class="hljs-variable">$0</span>.response.isTable },
+            <span class="hljs-string">&quot;is_diagram&quot;</span>: list { <span class="hljs-variable">$0</span>.response.isDiagram },
+            <span class="hljs-string">&quot;needs_checking&quot;</span>: list { <span class="hljs-variable">$0</span>.needsChecking },
+        ],
+    ]
+}</pre></div>
+        
+      
+        
+        <p>This defines where the outputs are stored.</p>
+
+        
+          <div class='highlight'><pre><span class="hljs-keyword">public</span> <span class="hljs-keyword">func</span> <span class="hljs-title function_">outputBaseURL</span>(<span class="hljs-params">for</span> <span class="hljs-params">source</span>: <span class="hljs-type">PageSource</span>, <span class="hljs-params">outputFolder</span>: <span class="hljs-type">URL</span>?) -&gt; <span class="hljs-type">URL</span> {
+    <span class="hljs-keyword">let</span> folder <span class="hljs-operator">=</span> outputFolder <span class="hljs-operator">??</span> source.url.deletingLastPathComponent()
+    <span class="hljs-keyword">let</span> name <span class="hljs-operator">=</span> source.kind <span class="hljs-operator">==</span> .folder <span class="hljs-operator">?</span> source.url.lastPathComponent : source.url.deletingPathExtension().lastPathComponent
+    <span class="hljs-keyword">return</span> folder.appendingPathComponent(name)
+}</pre></div>
+        
+      
+        
+        <p>A variable to hold everything for the outputs.</p>
+
+        
+          <div class='highlight'><pre><span class="hljs-keyword">public</span> <span class="hljs-keyword">struct</span> <span class="hljs-title class_">OutputPlan</span>: <span class="hljs-title class_">Codable</span>, <span class="hljs-title class_">Sendable</span> {
+    <span class="hljs-keyword">public</span> <span class="hljs-keyword">var</span> base: <span class="hljs-type">URL</span>
+    <span class="hljs-keyword">public</span> <span class="hljs-keyword">var</span> folder: <span class="hljs-type">URL</span>
+    <span class="hljs-keyword">public</span> <span class="hljs-keyword">var</span> manifest: <span class="hljs-type">URL</span>
+    <span class="hljs-keyword">public</span> <span class="hljs-keyword">var</span> formats: [<span class="hljs-type">OutputFormat</span>]
+    <span class="hljs-keyword">public</span> <span class="hljs-keyword">var</span> model: <span class="hljs-type">String</span>
+    <span class="hljs-keyword">public</span> <span class="hljs-keyword">var</span> modelRevision: <span class="hljs-type">String</span>?
+}</pre></div>
+        
+      
+        
+        <p>This defines the above variable, so we know where the outputs are going and in what format, with what model and alike.</p>
+
+        
+          <div class='highlight'><pre><span class="hljs-keyword">public</span> <span class="hljs-keyword">func</span> <span class="hljs-title function_">makeOutputPlan</span>(
+    <span class="hljs-params">source</span>: <span class="hljs-type">PageSource</span>, <span class="hljs-params">outputFolder</span>: <span class="hljs-type">URL</span>?, <span class="hljs-params">formats</span>: [<span class="hljs-type">OutputFormat</span>], <span class="hljs-params">model</span>: <span class="hljs-type">String</span>, <span class="hljs-params">modelRevision</span>: <span class="hljs-type">String</span>?
+) -&gt; <span class="hljs-type">OutputPlan</span> {
+    <span class="hljs-keyword">let</span> placement <span class="hljs-operator">=</span> availableBase(for: source, outputFolder: outputFolder)
+    <span class="hljs-keyword">let</span> base <span class="hljs-operator">=</span> transcriptBase(placement)
+    <span class="hljs-keyword">return</span> <span class="hljs-type">OutputPlan</span>(
+        base: base,
+        folder: transcriptFolder(placement),
+        manifest: manifestURL(base),
+        formats: formats,
+        model: model,
+        modelRevision: modelRevision
+    )
+}</pre></div>
+        
+      
+        
+        <p>Define the appropriate file extensions for plain text and Markdown (default).</p>
+
+        
+          <div class='highlight'><pre><span class="hljs-keyword">func</span> <span class="hljs-title function_">pageFileExtensions</span>(<span class="hljs-keyword">_</span> <span class="hljs-params">formats</span>: [<span class="hljs-type">OutputFormat</span>]) -&gt; [<span class="hljs-type">String</span>] {
+    <span class="hljs-keyword">var</span> extensions: [<span class="hljs-type">String</span>] <span class="hljs-operator">=</span> []
+    <span class="hljs-keyword">if</span> formats.contains(.markdown) {
+        extensions.append(<span class="hljs-string">&quot;md&quot;</span>)
+    }
+    <span class="hljs-keyword">if</span> formats.contains(.text) {
+        extensions.append(<span class="hljs-string">&quot;txt&quot;</span>)
+    }
+    <span class="hljs-keyword">return</span> extensions.isEmpty <span class="hljs-operator">?</span> [<span class="hljs-string">&quot;md&quot;</span>] : extensions
+}</pre></div>
+        
+      
+        
+        <p>For individual page files, define the file name and location.</p>
+
+        
+          <div class='highlight'><pre><span class="hljs-keyword">public</span> <span class="hljs-keyword">func</span> <span class="hljs-title function_">pageFileURL</span>(<span class="hljs-params">page</span>: <span class="hljs-type">Int</span>, <span class="hljs-params">source</span>: <span class="hljs-type">PageSource</span>, <span class="hljs-params">plan</span>: <span class="hljs-type">OutputPlan</span>, <span class="hljs-params">fileExtension</span>: <span class="hljs-type">String</span>? <span class="hljs-operator">=</span> <span class="hljs-literal">nil</span>) -&gt; <span class="hljs-type">URL</span> {
+    <span class="hljs-keyword">var</span> stem: <span class="hljs-type">String</span>
+    <span class="hljs-keyword">if</span> source.kind <span class="hljs-operator">==</span> .folder {
+        stem <span class="hljs-operator">=</span> source.pageStems[page <span class="hljs-operator">-</span> <span class="hljs-number">1</span>]
+    } <span class="hljs-keyword">else</span> {
+        stem <span class="hljs-operator">=</span> <span class="hljs-type">String</span>(format: <span class="hljs-string">&quot;p%04d&quot;</span>, page)
+    }
+    <span class="hljs-keyword">if</span> stem.lowercased() <span class="hljs-operator">==</span> plan.base.lastPathComponent.lowercased() {
+        stem <span class="hljs-operator">+=</span> <span class="hljs-string">&quot;_page&quot;</span>
+    }
+    <span class="hljs-keyword">let</span> ext <span class="hljs-operator">=</span> fileExtension <span class="hljs-operator">??</span> pageFileExtensions(plan.formats)[<span class="hljs-number">0</span>]
+    <span class="hljs-keyword">return</span> plan.folder.appendingPathComponent(stem).appendingPathExtension(ext)
+}</pre></div>
+        
+      
+        
+        <h3 id="file-output">File Output</h3>
+<p>The important bit! Write the actual file to the folder. Otherwise, we have nothing saved.</p>
+
+        
+          <div class='highlight'><pre><span class="hljs-keyword">public</span> <span class="hljs-keyword">func</span> <span class="hljs-title function_">writePageFile</span>(<span class="hljs-keyword">_</span> <span class="hljs-params">result</span>: <span class="hljs-type">PageResult</span>, <span class="hljs-params">source</span>: <span class="hljs-type">PageSource</span>, <span class="hljs-params">plan</span>: <span class="hljs-type">OutputPlan</span>, <span class="hljs-params">onlyIfMissing</span>: <span class="hljs-type">Bool</span> <span class="hljs-operator">=</span> <span class="hljs-literal">false</span>) <span class="hljs-keyword">throws</span> {
+    <span class="hljs-keyword">guard</span> plan.formats.contains(.pages) <span class="hljs-keyword">else</span> {
+        <span class="hljs-keyword">return</span>
+    }
+    <span class="hljs-keyword">let</span> manager <span class="hljs-operator">=</span> <span class="hljs-type">FileManager</span>.default
+    <span class="hljs-keyword">try</span> prepareTranscriptFolder(plan, source: source)
+    <span class="hljs-keyword">for</span> ext <span class="hljs-keyword">in</span> pageFileExtensions(plan.formats) {
+        <span class="hljs-keyword">let</span> url <span class="hljs-operator">=</span> pageFileURL(page: result.page, source: source, plan: plan, fileExtension: ext)
+        <span class="hljs-keyword">if</span> onlyIfMissing <span class="hljs-operator">&amp;&amp;</span> manager.fileExists(atPath: url.path) {
+            <span class="hljs-keyword">continue</span>
+        }
+        <span class="hljs-keyword">let</span> text <span class="hljs-operator">=</span> result.response.naturalText <span class="hljs-operator">??</span> <span class="hljs-string">&quot;&quot;</span>
+        <span class="hljs-keyword">let</span> content <span class="hljs-operator">=</span> ext <span class="hljs-operator">==</span> <span class="hljs-string">&quot;txt&quot;</span> <span class="hljs-operator">?</span> plainText(fromMarkdown: text) : text
+        <span class="hljs-keyword">try</span> content.write(to: url, atomically: <span class="hljs-literal">true</span>, encoding: .utf8)
+    }
+}</pre></div>
+        
+      
+        
+        <h3 id="status-and-manifest">Status and Manifest</h3>
+<p>A simple hash to make sure the prompt is exact.</p>
+
+        
+          <div class='highlight'><pre><span class="hljs-keyword">public</span> <span class="hljs-keyword">let</span> promptHash: <span class="hljs-type">String</span> <span class="hljs-operator">=</span> {
+    <span class="hljs-keyword">let</span> digest <span class="hljs-operator">=</span> <span class="hljs-type">SHA256</span>.hash(data: <span class="hljs-type">Data</span>(olmOCRPrompt.utf8)).map { <span class="hljs-type">String</span>(format: <span class="hljs-string">&quot;%02x&quot;</span>, <span class="hljs-variable">$0</span>) }.joined()
+    <span class="hljs-keyword">return</span> <span class="hljs-type">String</span>(digest.prefix(<span class="hljs-number">10</span>))
+}()</pre></div>
+        
+      
+        
+        <p>Take some text, and make it fit in a single .csv cell. This is so we can fill in the manifest properly.</p>
+
+        
+          <div class='highlight'><pre><span class="hljs-keyword">func</span> <span class="hljs-title function_">csvField</span>(<span class="hljs-keyword">_</span> <span class="hljs-params">value</span>: <span class="hljs-type">String</span>) -&gt; <span class="hljs-type">String</span> {
+    <span class="hljs-keyword">if</span> value.contains(<span class="hljs-string">&quot;,&quot;</span>) <span class="hljs-operator">||</span> value.contains(<span class="hljs-string">&quot;<span class="hljs-subst">\&quot;</span>&quot;</span>) <span class="hljs-operator">||</span> value.contains(<span class="hljs-string">&quot;<span class="hljs-subst">\n</span>&quot;</span>) <span class="hljs-operator">||</span> value.contains(<span class="hljs-string">&quot;<span class="hljs-subst">\r</span>&quot;</span>) {
+        <span class="hljs-keyword">return</span> <span class="hljs-string">&quot;<span class="hljs-subst">\&quot;</span>&quot;</span> <span class="hljs-operator">+</span> value.replacingOccurrences(of: <span class="hljs-string">&quot;<span class="hljs-subst">\&quot;</span>&quot;</span>, with: <span class="hljs-string">&quot;<span class="hljs-subst">\&quot;</span><span class="hljs-subst">\&quot;</span>&quot;</span>) <span class="hljs-operator">+</span> <span class="hljs-string">&quot;<span class="hljs-subst">\&quot;</span>&quot;</span>
+    }
+    <span class="hljs-keyword">return</span> value
+}</pre></div>
+        
+      
+        
+        <p>A simple function to define how the page went. Was it ok, or did it fail in some way?</p>
+
+        
+          <div class='highlight'><pre><span class="hljs-keyword">func</span> <span class="hljs-title function_">pageStatus</span>(<span class="hljs-keyword">_</span> <span class="hljs-params">result</span>: <span class="hljs-type">PageResult</span>) -&gt; <span class="hljs-type">String</span> {
+    <span class="hljs-keyword">if</span> result.isFallback <span class="hljs-operator">&amp;&amp;</span> result.response.naturalText <span class="hljs-operator">==</span> <span class="hljs-literal">nil</span> {
+        <span class="hljs-keyword">return</span> <span class="hljs-string">&quot;failed&quot;</span>
+    }
+    <span class="hljs-keyword">if</span> result.isFallback {
+        <span class="hljs-keyword">return</span> <span class="hljs-string">&quot;fallback&quot;</span>
+    }
+    <span class="hljs-keyword">if</span> result.needsChecking {
+        <span class="hljs-keyword">return</span> <span class="hljs-string">&quot;check&quot;</span>
+    }
+    <span class="hljs-keyword">if</span> result.response.naturalText <span class="hljs-operator">==</span> <span class="hljs-literal">nil</span> {
+        <span class="hljs-keyword">return</span> <span class="hljs-string">&quot;blank&quot;</span>
+    }
+    <span class="hljs-keyword">return</span> <span class="hljs-string">&quot;ok&quot;</span>
+}</pre></div>
+        
+      
+        
+        <p>Define the columns for the .csv manifest.</p>
+
+        
+          <div class='highlight'><pre><span class="hljs-keyword">let</span> manifestColumns <span class="hljs-operator">=</span> [
+    <span class="hljs-string">&quot;source_file&quot;</span>, <span class="hljs-string">&quot;page&quot;</span>, <span class="hljs-string">&quot;page_label&quot;</span>, <span class="hljs-string">&quot;image_path&quot;</span>, <span class="hljs-string">&quot;page_file&quot;</span>, <span class="hljs-string">&quot;model&quot;</span>, <span class="hljs-string">&quot;model_revision&quot;</span>,
+    <span class="hljs-string">&quot;prompt_version&quot;</span>, <span class="hljs-string">&quot;prompt_hash&quot;</span>, <span class="hljs-string">&quot;options&quot;</span>, <span class="hljs-string">&quot;status&quot;</span>, <span class="hljs-string">&quot;problem&quot;</span>, <span class="hljs-string">&quot;language&quot;</span>, <span class="hljs-string">&quot;is_table&quot;</span>, <span class="hljs-string">&quot;is_diagram&quot;</span>,
+    <span class="hljs-string">&quot;rotation&quot;</span>, <span class="hljs-string">&quot;attempts&quot;</span>, <span class="hljs-string">&quot;temperature&quot;</span>, <span class="hljs-string">&quot;chars&quot;</span>, <span class="hljs-string">&quot;input_tokens&quot;</span>, <span class="hljs-string">&quot;output_tokens&quot;</span>, <span class="hljs-string">&quot;seconds&quot;</span>, <span class="hljs-string">&quot;timestamp&quot;</span>,
+]</pre></div>
+        
+      
+        
+        <p>This is the main function that defines the manifest and fills it in with all the details of each page in the run.</p>
+
+        
+          <div class='highlight'><pre><span class="hljs-keyword">public</span> <span class="hljs-keyword">func</span> <span class="hljs-title function_">manifestCSV</span>(<span class="hljs-keyword">_</span> <span class="hljs-params">results</span>: [<span class="hljs-type">PageResult</span>], <span class="hljs-params">source</span>: <span class="hljs-type">PageSource</span>, <span class="hljs-params">plan</span>: <span class="hljs-type">OutputPlan</span>) -&gt; <span class="hljs-type">String</span> {
+    <span class="hljs-keyword">let</span> temperatures <span class="hljs-operator">=</span> temperatureByAttempt.map { <span class="hljs-type">String</span>(<span class="hljs-variable">$0</span>) }.joined(separator: <span class="hljs-string">&quot;, &quot;</span>)
+    <span class="hljs-keyword">func</span> <span class="hljs-title function_">optionsText</span>(<span class="hljs-keyword">_</span> <span class="hljs-params">result</span>: <span class="hljs-type">PageResult</span>) -&gt; <span class="hljs-type">String</span> {
+        <span class="hljs-keyword">let</span> limit <span class="hljs-operator">=</span> result.tokenLimit <span class="hljs-operator">??</span> maxTokens
+        <span class="hljs-keyword">let</span> repetition <span class="hljs-operator">=</span> (result.stopOnRepetition <span class="hljs-operator">??</span> <span class="hljs-literal">false</span>) <span class="hljs-operator">?</span> <span class="hljs-string">&quot;true&quot;</span> : <span class="hljs-string">&quot;false&quot;</span>
+        <span class="hljs-keyword">return</span> <span class="hljs-string">&quot;{<span class="hljs-subst">\&quot;</span>image_longest_side<span class="hljs-subst">\&quot;</span>: <span class="hljs-subst">\(Int(targetLongestSide))</span>, <span class="hljs-subst">\&quot;</span>max_tokens<span class="hljs-subst">\&quot;</span>: <span class="hljs-subst">\(limit)</span>, <span class="hljs-subst">\&quot;</span>stop_on_repetition<span class="hljs-subst">\&quot;</span>: <span class="hljs-subst">\(repetition)</span>, <span class="hljs-subst">\&quot;</span>temperature_by_attempt<span class="hljs-subst">\&quot;</span>: [<span class="hljs-subst">\(temperatures)</span>]}&quot;</span>
+    }
+    <span class="hljs-keyword">let</span> timestampFormatter <span class="hljs-operator">=</span> <span class="hljs-type">ISO8601DateFormatter</span>()
+    timestampFormatter.formatOptions <span class="hljs-operator">=</span> [.withInternetDateTime]
+    timestampFormatter.timeZone <span class="hljs-operator">=</span> .current
+
+    <span class="hljs-keyword">var</span> lines <span class="hljs-operator">=</span> [manifestColumns.joined(separator: <span class="hljs-string">&quot;,&quot;</span>)]
+    <span class="hljs-keyword">for</span> result <span class="hljs-keyword">in</span> results.sorted(by: { <span class="hljs-variable">$0</span>.page <span class="hljs-operator">&lt;</span> <span class="hljs-variable">$1</span>.page }) {
+        <span class="hljs-keyword">let</span> pageFile <span class="hljs-operator">=</span> plan.formats.contains(.pages) <span class="hljs-operator">?</span> pageFileURL(page: result.page, source: source, plan: plan).path : <span class="hljs-string">&quot;&quot;</span>
+        <span class="hljs-keyword">let</span> imagePath <span class="hljs-operator">=</span> source.kind <span class="hljs-operator">==</span> .folder <span class="hljs-operator">?</span> source.imageFiles[result.page <span class="hljs-operator">-</span> <span class="hljs-number">1</span>].path : <span class="hljs-string">&quot;&quot;</span>
+        <span class="hljs-keyword">let</span> row: [<span class="hljs-type">String</span>] <span class="hljs-operator">=</span> [
+            source.url.lastPathComponent,
+            <span class="hljs-string">&quot;<span class="hljs-subst">\(result.page)</span>&quot;</span>,
+            source.pageLabel(result.page),
+            imagePath,
+            pageFile,
+            plan.model,
+            plan.modelRevision <span class="hljs-operator">??</span> <span class="hljs-string">&quot;&quot;</span>,
+            promptVersion,
+            promptHash,
+            optionsText(result),
+            pageStatus(result),
+            result.problem <span class="hljs-operator">??</span> <span class="hljs-string">&quot;&quot;</span>,
+            result.response.primaryLanguage <span class="hljs-operator">??</span> <span class="hljs-string">&quot;&quot;</span>,
+            result.response.isTable <span class="hljs-operator">?</span> <span class="hljs-string">&quot;true&quot;</span> : <span class="hljs-string">&quot;false&quot;</span>,
+            result.response.isDiagram <span class="hljs-operator">?</span> <span class="hljs-string">&quot;true&quot;</span> : <span class="hljs-string">&quot;false&quot;</span>,
+            <span class="hljs-string">&quot;<span class="hljs-subst">\(result.rotation)</span>&quot;</span>,
+            <span class="hljs-string">&quot;<span class="hljs-subst">\(result.attempts)</span>&quot;</span>,
+            <span class="hljs-type">String</span>(format: <span class="hljs-string">&quot;%.1f&quot;</span>, result.temperature),
+            <span class="hljs-string">&quot;<span class="hljs-subst">\(result.response.naturalText<span class="hljs-operator">?</span>.count <span class="hljs-operator">??</span> <span class="hljs-number">0</span>)</span>&quot;</span>,
+            <span class="hljs-string">&quot;<span class="hljs-subst">\(result.inputTokens)</span>&quot;</span>,
+            <span class="hljs-string">&quot;<span class="hljs-subst">\(result.outputTokens)</span>&quot;</span>,
+            <span class="hljs-type">String</span>(format: <span class="hljs-string">&quot;%.1f&quot;</span>, result.seconds),
+            result.finishedAt.map { timestampFormatter.string(from: <span class="hljs-variable">$0</span>) } <span class="hljs-operator">??</span> <span class="hljs-string">&quot;&quot;</span>,
+        ]
+        lines.append(row.map(csvField).joined(separator: <span class="hljs-string">&quot;,&quot;</span>))
+    }
+    <span class="hljs-keyword">return</span> lines.joined(separator: <span class="hljs-string">&quot;<span class="hljs-subst">\n</span>&quot;</span>) <span class="hljs-operator">+</span> <span class="hljs-string">&quot;<span class="hljs-subst">\n</span>&quot;</span>
+}</pre></div>
+        
+      
+        
+        <p>And this is the function that actually writes the manifest to disk.</p>
+
+        
+          <div class='highlight'><pre><span class="hljs-keyword">public</span> <span class="hljs-keyword">func</span> <span class="hljs-title function_">writeManifest</span>(<span class="hljs-keyword">_</span> <span class="hljs-params">results</span>: [<span class="hljs-type">PageResult</span>], <span class="hljs-params">source</span>: <span class="hljs-type">PageSource</span>, <span class="hljs-params">plan</span>: <span class="hljs-type">OutputPlan</span>) <span class="hljs-keyword">throws</span> {
+    <span class="hljs-keyword">guard</span> plan.formats.contains(.manifest) <span class="hljs-keyword">else</span> {
+        <span class="hljs-keyword">return</span>
+    }
+    <span class="hljs-keyword">try</span> prepareTranscriptFolder(plan, source: source)
+    <span class="hljs-keyword">try</span> manifestCSV(results, source: source, plan: plan).write(to: plan.manifest, atomically: <span class="hljs-literal">true</span>, encoding: .utf8)
+    markAsOutput(plan.manifest, source: source)
+}</pre></div>
+        
+      
+        
+        <h3 id="save-everything">Save Everything</h3>
+<p>This function brings everything together, writing all the outputs (pages, whole documents, and manifests) to disk. It also makes sure that each file type has the right extension.</p>
+
+        
+          <div class='highlight'><pre><span class="hljs-keyword">public</span> <span class="hljs-keyword">func</span> <span class="hljs-title function_">writeOutputs</span>(<span class="hljs-params">results</span>: [<span class="hljs-type">PageResult</span>], <span class="hljs-params">run</span>: <span class="hljs-type">DocumentRun</span>, <span class="hljs-params">source</span>: <span class="hljs-type">PageSource</span>, <span class="hljs-params">plan</span>: <span class="hljs-type">OutputPlan</span>) <span class="hljs-keyword">throws</span>
+    -&gt; <span class="hljs-type">ExportedFiles</span>
+{
+    <span class="hljs-keyword">let</span> base <span class="hljs-operator">=</span> plan.base
+    <span class="hljs-keyword">try</span> prepareTranscriptFolder(plan, source: source)
+    <span class="hljs-keyword">var</span> written: [<span class="hljs-type">URL</span>] <span class="hljs-operator">=</span> []
+
+    <span class="hljs-keyword">for</span> format <span class="hljs-keyword">in</span> plan.formats {
+        <span class="hljs-keyword">switch</span> format {
+        <span class="hljs-keyword">case</span> .markdown:
+            <span class="hljs-keyword">let</span> url <span class="hljs-operator">=</span> base.appendingPathExtension(<span class="hljs-string">&quot;md&quot;</span>)
+            <span class="hljs-keyword">try</span> markdownDocument(results, source: source).write(to: url, atomically: <span class="hljs-literal">true</span>, encoding: .utf8)
+            markAsOutput(url, source: source)
+            written.append(url)
+        <span class="hljs-keyword">case</span> .text:
+            <span class="hljs-keyword">let</span> url <span class="hljs-operator">=</span> base.appendingPathExtension(<span class="hljs-string">&quot;txt&quot;</span>)
+            <span class="hljs-keyword">try</span> plainTextDocument(results, source: source).write(to: url, atomically: <span class="hljs-literal">true</span>, encoding: .utf8)
+            markAsOutput(url, source: source)
+            written.append(url)
+        <span class="hljs-keyword">case</span> .pages:
+            <span class="hljs-keyword">for</span> result <span class="hljs-keyword">in</span> results {
+                <span class="hljs-keyword">try</span> writePageFile(result, source: source, plan: plan)
+            }
+            written.append(plan.folder)
+        <span class="hljs-keyword">case</span> .jsonl:
+            <span class="hljs-keyword">let</span> url <span class="hljs-operator">=</span> base.appendingPathExtension(<span class="hljs-string">&quot;jsonl&quot;</span>)
+            <span class="hljs-keyword">if</span> <span class="hljs-keyword">let</span> record <span class="hljs-operator">=</span> dolmaRecord(results, run: run) {
+                <span class="hljs-keyword">let</span> data <span class="hljs-operator">=</span> <span class="hljs-keyword">try</span> <span class="hljs-type">JSONSerialization</span>.data(withJSONObject: record, options: [.sortedKeys, .withoutEscapingSlashes])
+                <span class="hljs-keyword">try</span> (<span class="hljs-type">String</span>(data: data, encoding: .utf8)<span class="hljs-operator">!</span> <span class="hljs-operator">+</span> <span class="hljs-string">&quot;<span class="hljs-subst">\n</span>&quot;</span>).write(to: url, atomically: <span class="hljs-literal">true</span>, encoding: .utf8)
+                markAsOutput(url, source: source)
+                written.append(url)
+            }
+        <span class="hljs-keyword">case</span> .manifest:
+            <span class="hljs-keyword">try</span> writeManifest(results, source: source, plan: plan)
+            written.append(plan.manifest)
+        }
+    }
+    <span class="hljs-keyword">return</span> <span class="hljs-type">ExportedFiles</span>(files: written)
+}</pre></div>
+        
+      
+        
+        <h3 id="protection">Protection</h3>
+<p>The following code is designed to make sure the app doesn’t overwrite other documents that were not created by it. For example, if you have your own transcriptions in the same folder, or alike.</p>
+
+        
+      
+        
+        <p>This defines a unique marker that goes in the metadata of each output. That way, we can check if a file was created by Slow Reading OCR.</p>
+
+        
+          <div class='highlight'><pre><span class="hljs-keyword">let</span> outputMarker <span class="hljs-operator">=</span> <span class="hljs-string">&quot;io.github.poskett.slowreading.output&quot;</span></pre></div>
+        
+      
+        
+        <p>This is the file path, which we use with the output marker to get a unique key.</p>
+
+        
+          <div class='highlight'><pre><span class="hljs-keyword">func</span> <span class="hljs-title function_">sourceKey</span>(<span class="hljs-keyword">_</span> <span class="hljs-params">source</span>: <span class="hljs-type">PageSource</span>) -&gt; <span class="hljs-type">String</span> {
+    source.url.standardizedFileURL.path
+}</pre></div>
+        
+      
+        
+        <p>Decide if the file is an output created by the app (by using the above source key and metadata marker).</p>
+
+        
+          <div class='highlight'><pre><span class="hljs-keyword">public</span> <span class="hljs-keyword">func</span> <span class="hljs-title function_">isOutput</span>(<span class="hljs-keyword">_</span> <span class="hljs-params">url</span>: <span class="hljs-type">URL</span>, <span class="hljs-params">of</span> <span class="hljs-params">source</span>: <span class="hljs-type">PageSource</span>) -&gt; <span class="hljs-type">Bool</span> {
+    <span class="hljs-keyword">let</span> size <span class="hljs-operator">=</span> getxattr(url.path, outputMarker, <span class="hljs-literal">nil</span>, <span class="hljs-number">0</span>, <span class="hljs-number">0</span>, <span class="hljs-number">0</span>)
+    <span class="hljs-keyword">guard</span> size <span class="hljs-operator">&gt;</span> <span class="hljs-number">0</span> <span class="hljs-keyword">else</span> {
+        <span class="hljs-keyword">return</span> <span class="hljs-literal">false</span>
+    }
+    <span class="hljs-keyword">var</span> buffer <span class="hljs-operator">=</span> [<span class="hljs-type">UInt8</span>](repeating: <span class="hljs-number">0</span>, count: size)
+    getxattr(url.path, outputMarker, <span class="hljs-operator">&amp;</span>buffer, size, <span class="hljs-number">0</span>, <span class="hljs-number">0</span>)
+    <span class="hljs-keyword">return</span> <span class="hljs-type">String</span>(decoding: buffer, as: <span class="hljs-type">UTF8</span>.<span class="hljs-keyword">self</span>) <span class="hljs-operator">==</span> sourceKey(source)
+}</pre></div>
+        
+      
+        
+        <p>This function uses the marker and source key to actually write output in such a way that identifies it later.</p>
+
+        
+          <div class='highlight'><pre><span class="hljs-keyword">func</span> <span class="hljs-title function_">markAsOutput</span>(<span class="hljs-keyword">_</span> <span class="hljs-params">url</span>: <span class="hljs-type">URL</span>, <span class="hljs-params">source</span>: <span class="hljs-type">PageSource</span>) {
+    <span class="hljs-keyword">let</span> value <span class="hljs-operator">=</span> <span class="hljs-type">Array</span>(sourceKey(source).utf8)
+    setxattr(url.path, outputMarker, value, value.count, <span class="hljs-number">0</span>, <span class="hljs-number">0</span>)
+}</pre></div>
+        
+      
+        
+        <p>Return the folder with the transcripts in.</p>
+
+        
+          <div class='highlight'><pre><span class="hljs-keyword">func</span> <span class="hljs-title function_">transcriptFolder</span>(<span class="hljs-keyword">_</span> <span class="hljs-params">placement</span>: <span class="hljs-type">URL</span>) -&gt; <span class="hljs-type">URL</span> {
+    <span class="hljs-type">URL</span>(fileURLWithPath: placement.path <span class="hljs-operator">+</span> <span class="hljs-string">&quot;_transcript&quot;</span>, isDirectory: <span class="hljs-literal">true</span>)
+}</pre></div>
+        
+      
+        
+        <p>Return the file path to the file in the above folder.</p>
+
+        
+          <div class='highlight'><pre><span class="hljs-keyword">func</span> <span class="hljs-title function_">transcriptBase</span>(<span class="hljs-keyword">_</span> <span class="hljs-params">placement</span>: <span class="hljs-type">URL</span>) -&gt; <span class="hljs-type">URL</span> {
+    transcriptFolder(placement).appendingPathComponent(placement.lastPathComponent)
+}</pre></div>
+        
+      
+        
+        <p>Return the file path for the manifest</p>
+
+        
+          <div class='highlight'><pre><span class="hljs-keyword">func</span> <span class="hljs-title function_">manifestURL</span>(<span class="hljs-keyword">_</span> <span class="hljs-params">base</span>: <span class="hljs-type">URL</span>) -&gt; <span class="hljs-type">URL</span> {
+    <span class="hljs-type">URL</span>(fileURLWithPath: base.path <span class="hljs-operator">+</span> <span class="hljs-string">&quot;_manifest.csv&quot;</span>)
+}</pre></div>
+        
+      
+        
+        <p>Return the file paths for the outputs</p>
+
+        
+          <div class='highlight'><pre><span class="hljs-keyword">func</span> <span class="hljs-title function_">wholeDocumentFiles</span>(<span class="hljs-keyword">_</span> <span class="hljs-params">base</span>: <span class="hljs-type">URL</span>) -&gt; [<span class="hljs-type">URL</span>] {
+    [<span class="hljs-string">&quot;md&quot;</span>, <span class="hljs-string">&quot;txt&quot;</span>, <span class="hljs-string">&quot;jsonl&quot;</span>].map { base.appendingPathExtension(<span class="hljs-variable">$0</span>) }
+}</pre></div>
+        
+      
+        
+        <p>If already have the same name, then we need to append a number, so this prepares that.</p>
+
+        
+          <div class='highlight'><pre><span class="hljs-keyword">func</span> <span class="hljs-title function_">numberedPlacement</span>(<span class="hljs-keyword">_</span> <span class="hljs-params">first</span>: <span class="hljs-type">URL</span>, <span class="hljs-params">number</span>: <span class="hljs-type">Int</span>) -&gt; <span class="hljs-type">URL</span> {
+    number <span class="hljs-operator">==</span> <span class="hljs-number">1</span>
+        <span class="hljs-operator">?</span> first
+        : first.deletingLastPathComponent().appendingPathComponent(<span class="hljs-string">&quot;<span class="hljs-subst">\(first.lastPathComponent)</span> (<span class="hljs-subst">\(number)</span>)&quot;</span>)
+}</pre></div>
+        
+      
+        
+        <p>Find the folder or create it if it doesn’t exist.</p>
+
+        
+          <div class='highlight'><pre><span class="hljs-keyword">func</span> <span class="hljs-title function_">prepareTranscriptFolder</span>(<span class="hljs-keyword">_</span> <span class="hljs-params">plan</span>: <span class="hljs-type">OutputPlan</span>, <span class="hljs-params">source</span>: <span class="hljs-type">PageSource</span>) <span class="hljs-keyword">throws</span> {
+    <span class="hljs-keyword">guard</span> <span class="hljs-operator">!</span><span class="hljs-type">FileManager</span>.default.fileExists(atPath: plan.folder.path) <span class="hljs-keyword">else</span> {
+        <span class="hljs-keyword">return</span>
+    }
+    <span class="hljs-keyword">try</span> <span class="hljs-type">FileManager</span>.default.createDirectory(at: plan.folder, withIntermediateDirectories: <span class="hljs-literal">true</span>)
+    markAsOutput(plan.folder, source: source)
+}
+
+<span class="hljs-keyword">func</span> <span class="hljs-title function_">outputCandidates</span>(<span class="hljs-keyword">_</span> <span class="hljs-params">placement</span>: <span class="hljs-type">URL</span>) -&gt; [<span class="hljs-type">URL</span>] {
+    <span class="hljs-keyword">let</span> base <span class="hljs-operator">=</span> transcriptBase(placement)
+    <span class="hljs-keyword">return</span> [transcriptFolder(placement), manifestURL(base)] <span class="hljs-operator">+</span> wholeDocumentFiles(base)
+}</pre></div>
+        
+      
+        
+        <p>This is the actual function which checks for and returns any previous transcriptions created by the app.</p>
+
+        
+          <div class='highlight'><pre><span class="hljs-keyword">public</span> <span class="hljs-keyword">func</span> <span class="hljs-title function_">existingTranscripts</span>(<span class="hljs-params">for</span> <span class="hljs-params">source</span>: <span class="hljs-type">PageSource</span>, <span class="hljs-params">outputFolder</span>: <span class="hljs-type">URL</span>?) -&gt; [<span class="hljs-type">URL</span>] {
+    <span class="hljs-keyword">let</span> manager <span class="hljs-operator">=</span> <span class="hljs-type">FileManager</span>.default
+    <span class="hljs-keyword">let</span> first <span class="hljs-operator">=</span> outputBaseURL(for: source, outputFolder: outputFolder)
+    <span class="hljs-keyword">var</span> found <span class="hljs-operator">=</span> wholeDocumentFiles(first).filter { isOutput(<span class="hljs-variable">$0</span>, of: source) }
+    <span class="hljs-keyword">var</span> number <span class="hljs-operator">=</span> <span class="hljs-number">1</span>
+    <span class="hljs-keyword">while</span> <span class="hljs-literal">true</span> {
+        <span class="hljs-keyword">let</span> placement <span class="hljs-operator">=</span> numberedPlacement(first, number: number)
+        <span class="hljs-keyword">let</span> folder <span class="hljs-operator">=</span> transcriptFolder(placement)
+        <span class="hljs-keyword">guard</span> manager.fileExists(atPath: folder.path) <span class="hljs-keyword">else</span> {
+            <span class="hljs-keyword">return</span> found
+        }
+        <span class="hljs-keyword">if</span> isOutput(folder, of: source) {
+            <span class="hljs-keyword">let</span> files <span class="hljs-operator">=</span> wholeDocumentFiles(transcriptBase(placement)).filter { manager.fileExists(atPath: <span class="hljs-variable">$0</span>.path) }
+            found.insert(contentsOf: files, at: <span class="hljs-number">0</span>)
+        }
+        number <span class="hljs-operator">+=</span> <span class="hljs-number">1</span>
+    }
+}</pre></div>
+        
+      
+        
+        <p>This checks whether we can use that filename, and if already uses, adds a (2), (3), (4) and so on after it to avoid a clash.</p>
+
+        
+          <div class='highlight'><pre><span class="hljs-keyword">public</span> <span class="hljs-keyword">func</span> <span class="hljs-title function_">availableBase</span>(<span class="hljs-params">for</span> <span class="hljs-params">source</span>: <span class="hljs-type">PageSource</span>, <span class="hljs-params">outputFolder</span>: <span class="hljs-type">URL</span>?) -&gt; <span class="hljs-type">URL</span> {
+    <span class="hljs-keyword">let</span> first <span class="hljs-operator">=</span> outputBaseURL(for: source, outputFolder: outputFolder)
+    <span class="hljs-keyword">let</span> manager <span class="hljs-operator">=</span> <span class="hljs-type">FileManager</span>.default
+    <span class="hljs-keyword">var</span> number <span class="hljs-operator">=</span> <span class="hljs-number">1</span>
+    <span class="hljs-keyword">while</span> <span class="hljs-literal">true</span> {
+        <span class="hljs-keyword">let</span> placement <span class="hljs-operator">=</span> numberedPlacement(first, number: number)
+        <span class="hljs-keyword">let</span> free <span class="hljs-operator">=</span> outputCandidates(placement).allSatisfy { url <span class="hljs-keyword">in</span>
+            <span class="hljs-operator">!</span>manager.fileExists(atPath: url.path) <span class="hljs-operator">||</span> isOutput(url, of: source)
+        }
+        <span class="hljs-keyword">if</span> free {
+            <span class="hljs-keyword">return</span> placement
+        }
+        number <span class="hljs-operator">+=</span> <span class="hljs-number">1</span>
+    }
+}</pre></div>
+        
+      
+      <div class="fleur">h</div>
+    </div>
+  </div>
+</body>
+</html>

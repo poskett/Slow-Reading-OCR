@@ -1,0 +1,388 @@
+<!DOCTYPE html>
+
+<html>
+<head>
+  <title>ModelStore.swift</title>
+  <meta http-equiv="content-type" content="text/html; charset=UTF-8">
+  <link rel="stylesheet" media="all" href="public/stylesheets/normalize.css" />
+  <link rel="stylesheet" media="all" href="../../docco.css" />
+</head>
+<body>
+  <div class="container">
+    <div class="page">
+
+      <div class="header">
+        
+          <h1>ModelStore.swift</h1>
+        
+
+        
+          <div class="toc">
+            <h3>Table of Contents</h3>
+            <ol>
+              
+                
+                <li>
+                  <a class="source" href="DocumentJob.html">
+                    Sources/OlmOCRCore/DocumentJob.swift
+                  </a>
+                </li>
+              
+                
+                <li>
+                  <a class="source" href="Exporters.html">
+                    Sources/OlmOCRCore/Exporters.swift
+                  </a>
+                </li>
+              
+                
+                <li>
+                  <a class="source" href="ModelDownloader.html">
+                    Sources/OlmOCRCore/ModelDownloader.swift
+                  </a>
+                </li>
+              
+                
+                <li>
+                  <a class="source" href="ModelStore.html">
+                    Sources/OlmOCRCore/ModelStore.swift
+                  </a>
+                </li>
+              
+                
+                <li>
+                  <a class="source" href="OCREngine.html">
+                    Sources/OlmOCRCore/OCREngine.swift
+                  </a>
+                </li>
+              
+                
+                <li>
+                  <a class="source" href="PageSource.html">
+                    Sources/OlmOCRCore/PageSource.swift
+                  </a>
+                </li>
+              
+                
+                <li>
+                  <a class="source" href="SystemCheck.html">
+                    Sources/OlmOCRCore/SystemCheck.swift
+                  </a>
+                </li>
+              
+                
+                <li>
+                  <a class="source" href="../olmocr/main.html">
+                    Sources/olmocr/main.swift
+                  </a>
+                </li>
+              
+            </ol>
+          </div>
+        
+      </div>
+
+      
+        
+        
+        
+          <div class='highlight'><pre><span class="hljs-comment">/* Declaration: Code generated using Anthropic Claude (Opus 5.5)*/</span></pre></div>
+        
+      
+        
+        <h3 id="code-commentary">Code Commentary</h3>
+<p>All commentary below was written manually by <a href="https://warwick.ac.uk/fac/arts/history/people/staff_index/poskett/">James Poskett</a> (University of Warwick).</p>
+<p>This commentary is for <a href="https://github.com/poskett/Slow-Reading-OCR/releases/tag/v1.1.1">v1.1.1</a>.</p>
+<h3 id="overview">Overview</h3>
+<p>This script defines functions that allow the app to store application data. In this case, for storing the models and associated information, not the output.</p>
+<h3 id="import-libraries">Import Libraries</h3>
+<p>Here we just need Foundation for basic read/write and file handling.</p>
+
+        
+          <div class='highlight'><pre><span class="hljs-keyword">import</span> Foundation</pre></div>
+        
+      
+        
+        <h3 id="variables">Variables</h3>
+<p>Define an error enum.</p>
+
+        
+          <div class='highlight'><pre><span class="hljs-keyword">public</span> <span class="hljs-keyword">enum</span> <span class="hljs-title class_">ModelStoreError</span>: <span class="hljs-title class_">LocalizedError</span> {
+    <span class="hljs-keyword">case</span> missingFiles(<span class="hljs-type">URL</span>, [<span class="hljs-type">String</span>])
+    <span class="hljs-keyword">case</span> unreadableConfig(<span class="hljs-type">URL</span>)
+
+    <span class="hljs-keyword">public</span> <span class="hljs-keyword">var</span> errorDescription: <span class="hljs-type">String</span>? {
+        <span class="hljs-keyword">switch</span> <span class="hljs-keyword">self</span> {
+        <span class="hljs-keyword">case</span> .missingFiles(<span class="hljs-keyword">let</span> url, <span class="hljs-keyword">let</span> files):
+            <span class="hljs-keyword">return</span> <span class="hljs-string">&quot;The model folder <span class="hljs-subst">\(url.path)</span> is incomplete. Missing: <span class="hljs-subst">\(files.joined(separator: <span class="hljs-string">&quot;, &quot;</span>))</span>.&quot;</span>
+        <span class="hljs-keyword">case</span> .unreadableConfig(<span class="hljs-keyword">let</span> url):
+            <span class="hljs-keyword">return</span> <span class="hljs-string">&quot;The model settings file in <span class="hljs-subst">\(url.path)</span> could not be read.&quot;</span>
+        }
+    }
+}</pre></div>
+        
+      
+        
+        <p>Define the files a model should have.</p>
+
+        
+          <div class='highlight'><pre><span class="hljs-keyword">public</span> <span class="hljs-keyword">enum</span> <span class="hljs-title class_">ModelStore</span> {
+    <span class="hljs-keyword">public</span> <span class="hljs-keyword">static</span> <span class="hljs-keyword">let</span> requiredFiles <span class="hljs-operator">=</span> [
+        <span class="hljs-string">&quot;config.json&quot;</span>, <span class="hljs-string">&quot;tokenizer.json&quot;</span>, <span class="hljs-string">&quot;tokenizer_config.json&quot;</span>, <span class="hljs-string">&quot;preprocessor_config.json&quot;</span>,
+    ]
+
+    <span class="hljs-keyword">static</span> <span class="hljs-keyword">let</span> tokenKeysToLift <span class="hljs-operator">=</span> [
+        <span class="hljs-string">&quot;image_token_id&quot;</span>, <span class="hljs-string">&quot;video_token_id&quot;</span>, <span class="hljs-string">&quot;vision_start_token_id&quot;</span>, <span class="hljs-string">&quot;vision_end_token_id&quot;</span>, <span class="hljs-string">&quot;vision_token_id&quot;</span>,
+    ]</pre></div>
+        
+      
+        
+        <p>Define where application support for this app will be.</p>
+
+        
+          <div class='highlight'><pre>    <span class="hljs-keyword">public</span> <span class="hljs-keyword">static</span> <span class="hljs-keyword">let</span> applicationSupport: <span class="hljs-type">URL</span> <span class="hljs-operator">=</span> {
+        <span class="hljs-keyword">let</span> base <span class="hljs-operator">=</span> <span class="hljs-type">FileManager</span>.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[<span class="hljs-number">0</span>]
+        <span class="hljs-keyword">let</span> folder <span class="hljs-operator">=</span> base.appendingPathComponent(<span class="hljs-string">&quot;Slow Reading&quot;</span>, isDirectory: <span class="hljs-literal">true</span>)
+        <span class="hljs-keyword">let</span> earlier <span class="hljs-operator">=</span> base.appendingPathComponent(<span class="hljs-string">&quot;olmOCR&quot;</span>, isDirectory: <span class="hljs-literal">true</span>)
+        <span class="hljs-keyword">let</span> manager <span class="hljs-operator">=</span> <span class="hljs-type">FileManager</span>.default
+        <span class="hljs-keyword">if</span> <span class="hljs-operator">!</span>manager.fileExists(atPath: folder.path) <span class="hljs-operator">&amp;&amp;</span> manager.fileExists(atPath: earlier.path) {
+            <span class="hljs-keyword">try?</span> manager.moveItem(at: earlier, to: folder)
+        }
+        <span class="hljs-keyword">return</span> folder
+    }()</pre></div>
+        
+      
+        
+        <p>Then define the various directories for application data. Here the models directory.</p>
+
+        
+          <div class='highlight'><pre>    <span class="hljs-keyword">public</span> <span class="hljs-keyword">static</span> <span class="hljs-keyword">var</span> modelsDirectory: <span class="hljs-type">URL</span> {
+        applicationSupport.appendingPathComponent(<span class="hljs-string">&quot;Models&quot;</span>, isDirectory: <span class="hljs-literal">true</span>)
+    }</pre></div>
+        
+      
+        
+        <p>The jobs that are in the app.</p>
+
+        
+          <div class='highlight'><pre>    <span class="hljs-keyword">public</span> <span class="hljs-keyword">static</span> <span class="hljs-keyword">var</span> jobsDirectory: <span class="hljs-type">URL</span> {
+        applicationSupport.appendingPathComponent(<span class="hljs-string">&quot;Jobs&quot;</span>, isDirectory: <span class="hljs-literal">true</span>)
+    }</pre></div>
+        
+      
+        
+        <p>And the actual folder for the models (both tiers).</p>
+
+        
+          <div class='highlight'><pre>    <span class="hljs-keyword">public</span> <span class="hljs-keyword">static</span> <span class="hljs-keyword">func</span> <span class="hljs-title function_">modelFolder</span>(<span class="hljs-keyword">_</span> <span class="hljs-params">tier</span>: <span class="hljs-type">ModelTier</span>) -&gt; <span class="hljs-type">URL</span> {
+        modelsDirectory.appendingPathComponent(tier.folderName, isDirectory: <span class="hljs-literal">true</span>)
+    }</pre></div>
+        
+      
+        
+        <h3 id="main-functions">Main Functions</h3>
+<p>This function just checks the size of a folder to report.</p>
+
+        
+          <div class='highlight'><pre>    <span class="hljs-keyword">public</span> <span class="hljs-keyword">static</span> <span class="hljs-keyword">func</span> <span class="hljs-title function_">folderSize</span>(<span class="hljs-keyword">_</span> <span class="hljs-params">url</span>: <span class="hljs-type">URL</span>) -&gt; <span class="hljs-type">Int64</span> {
+        <span class="hljs-keyword">let</span> keys: [<span class="hljs-type">URLResourceKey</span>] <span class="hljs-operator">=</span> [.totalFileAllocatedSizeKey, .isRegularFileKey]
+        <span class="hljs-keyword">guard</span> <span class="hljs-keyword">let</span> files <span class="hljs-operator">=</span> <span class="hljs-type">FileManager</span>.default.enumerator(at: url, includingPropertiesForKeys: keys) <span class="hljs-keyword">else</span> {
+            <span class="hljs-keyword">return</span> <span class="hljs-number">0</span>
+        }
+        <span class="hljs-keyword">var</span> total: <span class="hljs-type">Int64</span> <span class="hljs-operator">=</span> <span class="hljs-number">0</span>
+        <span class="hljs-keyword">for</span> <span class="hljs-keyword">case</span> <span class="hljs-keyword">let</span> file <span class="hljs-keyword">as</span> <span class="hljs-type">URL</span> <span class="hljs-keyword">in</span> files {
+            <span class="hljs-keyword">let</span> values <span class="hljs-operator">=</span> <span class="hljs-keyword">try?</span> file.resourceValues(forKeys: <span class="hljs-type">Set</span>(keys))
+            <span class="hljs-keyword">if</span> values<span class="hljs-operator">?</span>.isRegularFile <span class="hljs-operator">==</span> <span class="hljs-literal">true</span> {
+                total <span class="hljs-operator">+=</span> <span class="hljs-type">Int64</span>(values<span class="hljs-operator">?</span>.totalFileAllocatedSize <span class="hljs-operator">??</span> <span class="hljs-number">0</span>)
+            }
+        }
+        <span class="hljs-keyword">return</span> total
+    }</pre></div>
+        
+      
+        
+        <p>A simple function to remove all the files for a specific model.</p>
+
+        
+          <div class='highlight'><pre>    <span class="hljs-keyword">public</span> <span class="hljs-keyword">static</span> <span class="hljs-keyword">func</span> <span class="hljs-title function_">removeModelFiles</span>(<span class="hljs-keyword">_</span> <span class="hljs-params">tier</span>: <span class="hljs-type">ModelTier</span>) <span class="hljs-keyword">throws</span> {
+        <span class="hljs-keyword">let</span> folder <span class="hljs-operator">=</span> modelFolder(tier)
+        <span class="hljs-keyword">if</span> <span class="hljs-type">FileManager</span>.default.fileExists(atPath: folder.path) {
+            <span class="hljs-keyword">try</span> <span class="hljs-type">FileManager</span>.default.removeItem(at: folder)
+        }
+    }</pre></div>
+        
+      
+        
+        <p>And the same for pages that we want to remove.</p>
+
+        
+          <div class='highlight'><pre>    <span class="hljs-keyword">public</span> <span class="hljs-keyword">static</span> <span class="hljs-keyword">func</span> <span class="hljs-title function_">removeSavedPages</span>() <span class="hljs-keyword">throws</span> {
+        <span class="hljs-keyword">if</span> <span class="hljs-type">FileManager</span>.default.fileExists(atPath: jobsDirectory.path) {
+            <span class="hljs-keyword">try</span> <span class="hljs-type">FileManager</span>.default.removeItem(at: jobsDirectory)
+        }
+    }</pre></div>
+        
+      
+        
+        <p>This finds the local Hugging Face snapshot. If there is more than one, it gives the latest one.</p>
+
+        
+          <div class='highlight'><pre>    <span class="hljs-keyword">public</span> <span class="hljs-keyword">static</span> <span class="hljs-keyword">func</span> <span class="hljs-title function_">huggingFaceCacheSnapshot</span>(<span class="hljs-params">repo</span>: <span class="hljs-type">String</span>) -&gt; <span class="hljs-type">URL</span>? {
+        <span class="hljs-keyword">let</span> folder <span class="hljs-operator">=</span> <span class="hljs-string">&quot;models--&quot;</span> <span class="hljs-operator">+</span> repo.replacingOccurrences(of: <span class="hljs-string">&quot;/&quot;</span>, with: <span class="hljs-string">&quot;--&quot;</span>)
+        <span class="hljs-keyword">let</span> snapshots <span class="hljs-operator">=</span> <span class="hljs-type">FileManager</span>.default.homeDirectoryForCurrentUser
+            .appendingPathComponent(<span class="hljs-string">&quot;.cache/huggingface/hub&quot;</span>)
+            .appendingPathComponent(folder)
+            .appendingPathComponent(<span class="hljs-string">&quot;snapshots&quot;</span>)
+        <span class="hljs-keyword">let</span> entries <span class="hljs-operator">=</span> (<span class="hljs-keyword">try?</span> <span class="hljs-type">FileManager</span>.default.contentsOfDirectory(
+            at: snapshots, includingPropertiesForKeys: [.contentModificationDateKey])) <span class="hljs-operator">??</span> []
+        <span class="hljs-keyword">return</span> entries.max { a, b <span class="hljs-keyword">in</span>
+            <span class="hljs-keyword">let</span> dateA <span class="hljs-operator">=</span> (<span class="hljs-keyword">try?</span> a.resourceValues(forKeys: [.contentModificationDateKey]).contentModificationDate) <span class="hljs-operator">??</span> .distantPast
+            <span class="hljs-keyword">let</span> dateB <span class="hljs-operator">=</span> (<span class="hljs-keyword">try?</span> b.resourceValues(forKeys: [.contentModificationDateKey]).contentModificationDate) <span class="hljs-operator">??</span> .distantPast
+            <span class="hljs-keyword">return</span> dateA <span class="hljs-operator">&lt;</span> dateB
+        }
+    }</pre></div>
+        
+      
+        
+        <p>A function that checks if we have everything, the core files, the weights and alike.</p>
+
+        
+          <div class='highlight'><pre>    <span class="hljs-keyword">public</span> <span class="hljs-keyword">static</span> <span class="hljs-keyword">func</span> <span class="hljs-title function_">checkComplete</span>(<span class="hljs-keyword">_</span> <span class="hljs-params">directory</span>: <span class="hljs-type">URL</span>) <span class="hljs-keyword">throws</span> {
+        <span class="hljs-keyword">var</span> missing <span class="hljs-operator">=</span> requiredFiles.filter {
+            <span class="hljs-operator">!</span><span class="hljs-type">FileManager</span>.default.fileExists(atPath: directory.appendingPathComponent(<span class="hljs-variable">$0</span>).path)
+        }
+        <span class="hljs-keyword">let</span> contents <span class="hljs-operator">=</span> (<span class="hljs-keyword">try?</span> <span class="hljs-type">FileManager</span>.default.contentsOfDirectory(atPath: directory.path)) <span class="hljs-operator">??</span> []
+        <span class="hljs-keyword">if</span> <span class="hljs-operator">!</span>contents.contains(where: { <span class="hljs-variable">$0</span>.hasSuffix(<span class="hljs-string">&quot;.safetensors&quot;</span>) }) {
+            missing.append(<span class="hljs-string">&quot;model weights (.safetensors)&quot;</span>)
+        }
+        <span class="hljs-keyword">if</span> <span class="hljs-operator">!</span>missing.isEmpty {
+            <span class="hljs-keyword">throw</span> <span class="hljs-type">ModelStoreError</span>.missingFiles(directory, missing)
+        }
+    }</pre></div>
+        
+      
+        
+        <p>A function that tells us if there is something wrong with the config.</p>
+
+        
+          <div class='highlight'><pre>    <span class="hljs-keyword">public</span> <span class="hljs-keyword">static</span> <span class="hljs-keyword">func</span> <span class="hljs-title function_">configNeedsFix</span>(<span class="hljs-keyword">_</span> <span class="hljs-params">directory</span>: <span class="hljs-type">URL</span>) <span class="hljs-keyword">throws</span> -&gt; <span class="hljs-type">Bool</span> {
+        <span class="hljs-keyword">let</span> config <span class="hljs-operator">=</span> <span class="hljs-keyword">try</span> readJSON(directory.appendingPathComponent(<span class="hljs-string">&quot;config.json&quot;</span>))
+        <span class="hljs-keyword">let</span> textConfig <span class="hljs-operator">=</span> config[<span class="hljs-string">&quot;text_config&quot;</span>] <span class="hljs-keyword">as?</span> [<span class="hljs-type">String</span>: <span class="hljs-keyword">Any</span>] <span class="hljs-operator">??</span> [:]
+        <span class="hljs-keyword">return</span> tokenKeysToLift.contains { key <span class="hljs-keyword">in</span>
+            isMissing(config[key]) <span class="hljs-operator">&amp;&amp;</span> <span class="hljs-operator">!</span>isMissing(textConfig[key])
+        }
+    }
+
+    <span class="hljs-keyword">public</span> <span class="hljs-keyword">static</span> <span class="hljs-keyword">func</span> <span class="hljs-title function_">prepare</span>(<span class="hljs-keyword">_</span> <span class="hljs-params">directory</span>: <span class="hljs-type">URL</span>) <span class="hljs-keyword">throws</span> -&gt; <span class="hljs-type">URL</span> {
+        <span class="hljs-keyword">try</span> checkComplete(directory)
+        <span class="hljs-keyword">if</span> <span class="hljs-keyword">try</span> <span class="hljs-operator">!</span>configNeedsFix(directory) {
+            <span class="hljs-keyword">return</span> directory
+        }
+        <span class="hljs-keyword">if</span> directory.standardizedFileURL.path.hasPrefix(modelsDirectory.standardizedFileURL.path) {
+            <span class="hljs-keyword">try</span> fixConfigInPlace(directory)
+            <span class="hljs-keyword">return</span> directory
+        }
+        <span class="hljs-keyword">let</span> name <span class="hljs-operator">=</span> modelName(for: directory)
+        <span class="hljs-keyword">let</span> destination <span class="hljs-operator">=</span> modelsDirectory
+            .appendingPathComponent(<span class="hljs-string">&quot;Linked&quot;</span>, isDirectory: <span class="hljs-literal">true</span>)
+            .appendingPathComponent(name, isDirectory: <span class="hljs-literal">true</span>)
+        <span class="hljs-keyword">try</span> linkModelFolder(from: directory, to: destination)
+        <span class="hljs-keyword">return</span> destination
+    }
+
+    <span class="hljs-keyword">public</span> <span class="hljs-keyword">static</span> <span class="hljs-keyword">func</span> <span class="hljs-title function_">fixConfigInPlace</span>(<span class="hljs-keyword">_</span> <span class="hljs-params">directory</span>: <span class="hljs-type">URL</span>) <span class="hljs-keyword">throws</span> {
+        <span class="hljs-keyword">let</span> url <span class="hljs-operator">=</span> directory.appendingPathComponent(<span class="hljs-string">&quot;config.json&quot;</span>)
+        <span class="hljs-keyword">var</span> config <span class="hljs-operator">=</span> <span class="hljs-keyword">try</span> readJSON(url)
+        <span class="hljs-keyword">let</span> textConfig <span class="hljs-operator">=</span> config[<span class="hljs-string">&quot;text_config&quot;</span>] <span class="hljs-keyword">as?</span> [<span class="hljs-type">String</span>: <span class="hljs-keyword">Any</span>] <span class="hljs-operator">??</span> [:]
+        <span class="hljs-keyword">var</span> changed <span class="hljs-operator">=</span> <span class="hljs-literal">false</span>
+        <span class="hljs-keyword">for</span> key <span class="hljs-keyword">in</span> tokenKeysToLift <span class="hljs-keyword">where</span> isMissing(config[key]) <span class="hljs-operator">&amp;&amp;</span> <span class="hljs-operator">!</span>isMissing(textConfig[key]) {
+            config[key] <span class="hljs-operator">=</span> textConfig[key]
+            changed <span class="hljs-operator">=</span> <span class="hljs-literal">true</span>
+        }
+        <span class="hljs-keyword">if</span> changed {
+            <span class="hljs-keyword">let</span> data <span class="hljs-operator">=</span> <span class="hljs-keyword">try</span> <span class="hljs-type">JSONSerialization</span>.data(withJSONObject: config, options: [.prettyPrinted, .sortedKeys])
+            <span class="hljs-keyword">try</span> data.write(to: url, options: .atomic)
+        }
+    }</pre></div>
+        
+      
+        
+        <h3 id="import-model">Import Model</h3>
+<p>Instead of downloading, the user can import a model they already have downloaded elsewhere. This function provides for that.</p>
+
+        
+          <div class='highlight'><pre>    <span class="hljs-keyword">public</span> <span class="hljs-keyword">static</span> <span class="hljs-keyword">func</span> <span class="hljs-title function_">importModel</span>(<span class="hljs-params">from</span> <span class="hljs-params">source</span>: <span class="hljs-type">URL</span>, <span class="hljs-params">tier</span>: <span class="hljs-type">ModelTier</span>) <span class="hljs-keyword">throws</span> -&gt; <span class="hljs-type">URL</span> {
+        <span class="hljs-keyword">try</span> checkComplete(source)
+        <span class="hljs-keyword">let</span> destination <span class="hljs-operator">=</span> modelsDirectory.appendingPathComponent(tier.folderName, isDirectory: <span class="hljs-literal">true</span>)
+        <span class="hljs-keyword">let</span> fileManager <span class="hljs-operator">=</span> <span class="hljs-type">FileManager</span>.default
+        <span class="hljs-keyword">try</span> fileManager.createDirectory(at: destination, withIntermediateDirectories: <span class="hljs-literal">true</span>)
+        <span class="hljs-keyword">for</span> item <span class="hljs-keyword">in</span> <span class="hljs-keyword">try</span> fileManager.contentsOfDirectory(atPath: source.path) <span class="hljs-keyword">where</span> <span class="hljs-operator">!</span>item.hasPrefix(<span class="hljs-string">&quot;.&quot;</span>) {
+            <span class="hljs-keyword">let</span> target <span class="hljs-operator">=</span> destination.appendingPathComponent(item)
+            <span class="hljs-keyword">if</span> fileManager.fileExists(atPath: target.path) {
+                <span class="hljs-keyword">try</span> fileManager.removeItem(at: target)
+            }
+            <span class="hljs-keyword">try</span> fileManager.copyItem(
+                at: source.appendingPathComponent(item).resolvingSymlinksInPath(), to: target)
+        }
+        <span class="hljs-keyword">try</span> fixConfigInPlace(destination)
+        <span class="hljs-keyword">let</span> info <span class="hljs-operator">=</span> <span class="hljs-type">ModelInfo</span>(repo: tier.repo, revision: <span class="hljs-string">&quot;imported from <span class="hljs-subst">\(source.path)</span>&quot;</span>, files: [], installed: <span class="hljs-type">Date</span>())
+        <span class="hljs-keyword">let</span> encoder <span class="hljs-operator">=</span> <span class="hljs-type">JSONEncoder</span>()
+        encoder.outputFormatting <span class="hljs-operator">=</span> [.prettyPrinted, .sortedKeys]
+        encoder.dateEncodingStrategy <span class="hljs-operator">=</span> .iso8601
+        <span class="hljs-keyword">try</span> encoder.encode(info).write(to: destination.appendingPathComponent(<span class="hljs-string">&quot;model_info.json&quot;</span>), options: .atomic)
+        <span class="hljs-keyword">return</span> destination
+    }
+
+    <span class="hljs-keyword">public</span> <span class="hljs-keyword">static</span> <span class="hljs-keyword">func</span> <span class="hljs-title function_">modelName</span>(<span class="hljs-params">for</span> <span class="hljs-params">directory</span>: <span class="hljs-type">URL</span>) -&gt; <span class="hljs-type">String</span> {
+        <span class="hljs-keyword">let</span> components <span class="hljs-operator">=</span> directory.standardizedFileURL.pathComponents
+        <span class="hljs-keyword">if</span> <span class="hljs-keyword">let</span> index <span class="hljs-operator">=</span> components.firstIndex(where: { <span class="hljs-variable">$0</span>.hasPrefix(<span class="hljs-string">&quot;models--&quot;</span>) }) {
+            <span class="hljs-keyword">return</span> components[index].components(separatedBy: <span class="hljs-string">&quot;--&quot;</span>).last <span class="hljs-operator">??</span> directory.lastPathComponent
+        }
+        <span class="hljs-keyword">return</span> directory.lastPathComponent
+    }</pre></div>
+        
+      
+        
+        <p>Rather than copying everything, this creates a symbolic link to the local model.</p>
+
+        
+          <div class='highlight'><pre>    <span class="hljs-keyword">static</span> <span class="hljs-keyword">func</span> <span class="hljs-title function_">linkModelFolder</span>(<span class="hljs-params">from</span> <span class="hljs-params">source</span>: <span class="hljs-type">URL</span>, <span class="hljs-params">to</span> <span class="hljs-params">destination</span>: <span class="hljs-type">URL</span>) <span class="hljs-keyword">throws</span> {
+        <span class="hljs-keyword">let</span> fileManager <span class="hljs-operator">=</span> <span class="hljs-type">FileManager</span>.default
+        <span class="hljs-keyword">try</span> fileManager.createDirectory(at: destination, withIntermediateDirectories: <span class="hljs-literal">true</span>)
+        <span class="hljs-keyword">for</span> item <span class="hljs-keyword">in</span> <span class="hljs-keyword">try</span> fileManager.contentsOfDirectory(atPath: source.path) <span class="hljs-keyword">where</span> item <span class="hljs-operator">!=</span> <span class="hljs-string">&quot;config.json&quot;</span> {
+            <span class="hljs-keyword">let</span> link <span class="hljs-operator">=</span> destination.appendingPathComponent(item)
+            <span class="hljs-keyword">let</span> target <span class="hljs-operator">=</span> source.appendingPathComponent(item).resolvingSymlinksInPath()
+            <span class="hljs-keyword">if</span> (<span class="hljs-keyword">try?</span> link.checkResourceIsReachable()) <span class="hljs-operator">==</span> <span class="hljs-literal">true</span> <span class="hljs-operator">||</span> (<span class="hljs-keyword">try?</span> fileManager.destinationOfSymbolicLink(atPath: link.path)) <span class="hljs-operator">!=</span> <span class="hljs-literal">nil</span> {
+                <span class="hljs-keyword">try</span> fileManager.removeItem(at: link)
+            }
+            <span class="hljs-keyword">try</span> fileManager.createSymbolicLink(at: link, withDestinationURL: target)
+        }
+        <span class="hljs-keyword">var</span> config <span class="hljs-operator">=</span> <span class="hljs-keyword">try</span> readJSON(source.appendingPathComponent(<span class="hljs-string">&quot;config.json&quot;</span>))
+        <span class="hljs-keyword">let</span> textConfig <span class="hljs-operator">=</span> config[<span class="hljs-string">&quot;text_config&quot;</span>] <span class="hljs-keyword">as?</span> [<span class="hljs-type">String</span>: <span class="hljs-keyword">Any</span>] <span class="hljs-operator">??</span> [:]
+        <span class="hljs-keyword">for</span> key <span class="hljs-keyword">in</span> tokenKeysToLift <span class="hljs-keyword">where</span> isMissing(config[key]) <span class="hljs-operator">&amp;&amp;</span> <span class="hljs-operator">!</span>isMissing(textConfig[key]) {
+            config[key] <span class="hljs-operator">=</span> textConfig[key]
+        }
+        <span class="hljs-keyword">let</span> data <span class="hljs-operator">=</span> <span class="hljs-keyword">try</span> <span class="hljs-type">JSONSerialization</span>.data(withJSONObject: config, options: [.prettyPrinted, .sortedKeys])
+        <span class="hljs-keyword">try</span> data.write(to: destination.appendingPathComponent(<span class="hljs-string">&quot;config.json&quot;</span>), options: .atomic)
+    }
+
+    <span class="hljs-keyword">static</span> <span class="hljs-keyword">func</span> <span class="hljs-title function_">readJSON</span>(<span class="hljs-keyword">_</span> <span class="hljs-params">url</span>: <span class="hljs-type">URL</span>) <span class="hljs-keyword">throws</span> -&gt; [<span class="hljs-type">String</span>: <span class="hljs-keyword">Any</span>] {
+        <span class="hljs-keyword">guard</span> <span class="hljs-keyword">let</span> data <span class="hljs-operator">=</span> <span class="hljs-keyword">try?</span> <span class="hljs-type">Data</span>(contentsOf: url),
+            <span class="hljs-keyword">let</span> object <span class="hljs-operator">=</span> <span class="hljs-keyword">try?</span> <span class="hljs-type">JSONSerialization</span>.jsonObject(with: data) <span class="hljs-keyword">as?</span> [<span class="hljs-type">String</span>: <span class="hljs-keyword">Any</span>]
+        <span class="hljs-keyword">else</span> {
+            <span class="hljs-keyword">throw</span> <span class="hljs-type">ModelStoreError</span>.unreadableConfig(url.deletingLastPathComponent())
+        }
+        <span class="hljs-keyword">return</span> object
+    }
+
+    <span class="hljs-keyword">static</span> <span class="hljs-keyword">func</span> <span class="hljs-title function_">isMissing</span>(<span class="hljs-keyword">_</span> <span class="hljs-params">value</span>: <span class="hljs-keyword">Any</span><span class="hljs-operator">?</span>) -&gt; <span class="hljs-type">Bool</span> {
+        value <span class="hljs-operator">==</span> <span class="hljs-literal">nil</span> <span class="hljs-operator">||</span> value <span class="hljs-keyword">is</span> <span class="hljs-type">NSNull</span>
+    }
+}</pre></div>
+        
+      
+      <div class="fleur">h</div>
+    </div>
+  </div>
+</body>
+</html>

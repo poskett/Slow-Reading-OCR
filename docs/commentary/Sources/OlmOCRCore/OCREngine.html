@@ -1,0 +1,679 @@
+<!DOCTYPE html>
+
+<html>
+<head>
+  <title>OCREngine.swift</title>
+  <meta http-equiv="content-type" content="text/html; charset=UTF-8">
+  <link rel="stylesheet" media="all" href="public/stylesheets/normalize.css" />
+  <link rel="stylesheet" media="all" href="../../docco.css" />
+</head>
+<body>
+  <div class="container">
+    <div class="page">
+
+      <div class="header">
+        
+          <h1>OCREngine.swift</h1>
+        
+
+        
+          <div class="toc">
+            <h3>Table of Contents</h3>
+            <ol>
+              
+                
+                <li>
+                  <a class="source" href="DocumentJob.html">
+                    Sources/OlmOCRCore/DocumentJob.swift
+                  </a>
+                </li>
+              
+                
+                <li>
+                  <a class="source" href="Exporters.html">
+                    Sources/OlmOCRCore/Exporters.swift
+                  </a>
+                </li>
+              
+                
+                <li>
+                  <a class="source" href="ModelDownloader.html">
+                    Sources/OlmOCRCore/ModelDownloader.swift
+                  </a>
+                </li>
+              
+                
+                <li>
+                  <a class="source" href="ModelStore.html">
+                    Sources/OlmOCRCore/ModelStore.swift
+                  </a>
+                </li>
+              
+                
+                <li>
+                  <a class="source" href="OCREngine.html">
+                    Sources/OlmOCRCore/OCREngine.swift
+                  </a>
+                </li>
+              
+                
+                <li>
+                  <a class="source" href="PageSource.html">
+                    Sources/OlmOCRCore/PageSource.swift
+                  </a>
+                </li>
+              
+                
+                <li>
+                  <a class="source" href="SystemCheck.html">
+                    Sources/OlmOCRCore/SystemCheck.swift
+                  </a>
+                </li>
+              
+                
+                <li>
+                  <a class="source" href="../olmocr/main.html">
+                    Sources/olmocr/main.swift
+                  </a>
+                </li>
+              
+            </ol>
+          </div>
+        
+      </div>
+
+      
+        
+        
+        
+          <div class='highlight'><pre><span class="hljs-comment">/* Declaration: Code generated using Anthropic Claude (Opus 5.5)*/</span></pre></div>
+        
+      
+        
+        <p>All commentary below was written manually by <a href="https://warwick.ac.uk/fac/arts/history/people/staff_index/poskett/">James Poskett</a> (University of Warwick).</p>
+<p>This commentary is for <a href="https://github.com/poskett/Slow-Reading-OCR/releases/tag/v1.1.1">v1.1.1</a>.</p>
+<h3 id="overview">Overview</h3>
+<p>This script does the core OCR work. It loads the model, sets the parameters, sets the prompt, checks for errors, and returns the text.</p>
+
+        
+      
+        
+        <h3 id="import-libraries">Import Libraries</h3>
+<p>Here, we import the core external libraries, particularly:</p>
+<ul>
+<li>MLX to use GPU acceleration on Apple Silicon</li>
+<li>Hugging Face to access models</li>
+<li>Tokenizers to convert text to numbers and back again.</li>
+</ul>
+
+        
+          <div class='highlight'><pre><span class="hljs-keyword">import</span> CoreImage
+<span class="hljs-keyword">import</span> Foundation
+<span class="hljs-keyword">import</span> HuggingFace
+<span class="hljs-keyword">import</span> MLX
+<span class="hljs-keyword">import</span> MLXHuggingFace
+<span class="hljs-keyword">import</span> MLXLMCommon
+<span class="hljs-keyword">import</span> MLXVLM
+<span class="hljs-keyword">import</span> Tokenizers</pre></div>
+        
+      
+        
+        <h3 id="prompt">Prompt</h3>
+<p>This is the prompt for olmOCR, which must be exactly as worded, as this is the prompt the model was trained on.</p>
+
+        
+          <div class='highlight'><pre><span class="hljs-keyword">public</span> <span class="hljs-keyword">let</span> olmOCRPrompt <span class="hljs-operator">=</span>
+    <span class="hljs-string">&quot;Attached is one page of a document that you must process. &quot;</span>
+    <span class="hljs-operator">+</span> <span class="hljs-string">&quot;Just return the plain text representation of this document as if you were reading it naturally. Convert equations to LateX and tables to HTML.<span class="hljs-subst">\n</span>&quot;</span>
+    <span class="hljs-operator">+</span> <span class="hljs-string">&quot;If there are any figures or charts, label them with the following markdown syntax ![Alt text describing the contents of the figure](page_startx_starty_width_height.png)<span class="hljs-subst">\n</span>&quot;</span>
+    <span class="hljs-operator">+</span> <span class="hljs-string">&quot;Return your output as markdown, with a front matter section on top specifying values for the primary_language, is_rotation_valid, rotation_correction, is_table, and is_diagram parameters.&quot;</span></pre></div>
+        
+      
+        
+        <p>Further default settings for the model, including the token limits, the pixel size of the image sent, and the temperature it starts at and then increases to after each failed attempt, up to the max attempts.</p>
+
+        
+          <div class='highlight'><pre>
+<span class="hljs-keyword">public</span> <span class="hljs-keyword">let</span> promptVersion <span class="hljs-operator">=</span> <span class="hljs-string">&quot;olmocr-v4-yaml-no-anchoring&quot;</span>
+<span class="hljs-keyword">public</span> <span class="hljs-keyword">let</span> maxTokens <span class="hljs-operator">=</span> <span class="hljs-number">8000</span>
+<span class="hljs-keyword">public</span> <span class="hljs-keyword">let</span> defaultTokenLimit <span class="hljs-operator">=</span> <span class="hljs-number">6000</span>
+<span class="hljs-keyword">public</span> <span class="hljs-keyword">let</span> tokenLimitChoices <span class="hljs-operator">=</span> [<span class="hljs-number">4000</span>, <span class="hljs-number">6000</span>, <span class="hljs-number">8000</span>]
+<span class="hljs-keyword">public</span> <span class="hljs-keyword">let</span> modelMaxContext <span class="hljs-operator">=</span> <span class="hljs-number">16384</span>
+<span class="hljs-keyword">public</span> <span class="hljs-keyword">let</span> modelMaxPixels <span class="hljs-operator">=</span> <span class="hljs-number">12_845_056</span>
+<span class="hljs-keyword">public</span> <span class="hljs-keyword">let</span> temperatureByAttempt: [<span class="hljs-type">Float</span>] <span class="hljs-operator">=</span> [<span class="hljs-number">0.1</span>, <span class="hljs-number">0.1</span>, <span class="hljs-number">0.2</span>, <span class="hljs-number">0.3</span>, <span class="hljs-number">0.5</span>, <span class="hljs-number">0.8</span>, <span class="hljs-number">0.9</span>, <span class="hljs-number">1.0</span>]
+<span class="hljs-keyword">public</span> <span class="hljs-keyword">let</span> maxAttempts <span class="hljs-operator">=</span> <span class="hljs-number">8</span></pre></div>
+        
+      
+        
+        <p>This variable holds the response given directly by olmOCR including the “naturalText” which is the OCR itself.</p>
+<p>The other variables are what olmOCR also tells the us about the page it was given, such as the language, whether it is a diagram, and whether it had to be rotated.</p>
+
+        
+          <div class='highlight'><pre>
+<span class="hljs-keyword">public</span> <span class="hljs-keyword">struct</span> <span class="hljs-title class_">PageResponse</span>: <span class="hljs-title class_">Codable</span>, <span class="hljs-title class_">Sendable</span>, <span class="hljs-title class_">Equatable</span> {
+    <span class="hljs-keyword">public</span> <span class="hljs-keyword">var</span> primaryLanguage: <span class="hljs-type">String</span>?
+    <span class="hljs-keyword">public</span> <span class="hljs-keyword">var</span> isRotationValid: <span class="hljs-type">Bool</span>
+    <span class="hljs-keyword">public</span> <span class="hljs-keyword">var</span> rotationCorrection: <span class="hljs-type">Int</span>
+    <span class="hljs-keyword">public</span> <span class="hljs-keyword">var</span> isTable: <span class="hljs-type">Bool</span>
+    <span class="hljs-keyword">public</span> <span class="hljs-keyword">var</span> isDiagram: <span class="hljs-type">Bool</span>
+    <span class="hljs-keyword">public</span> <span class="hljs-keyword">var</span> naturalText: <span class="hljs-type">String</span>?
+}</pre></div>
+        
+      
+        
+        <p>This variable holds all the information the local Mac app needs. That includes the PageResponse from above, but also the page number, the number of input and output tokens, whether there was any problem flagged, and the time it took, amongst other things.</p>
+
+        
+          <div class='highlight'><pre>
+<span class="hljs-keyword">public</span> <span class="hljs-keyword">struct</span> <span class="hljs-title class_">PageResult</span>: <span class="hljs-title class_">Codable</span>, <span class="hljs-title class_">Sendable</span> {
+    <span class="hljs-keyword">public</span> <span class="hljs-keyword">var</span> page: <span class="hljs-type">Int</span>
+    <span class="hljs-keyword">public</span> <span class="hljs-keyword">var</span> response: <span class="hljs-type">PageResponse</span>
+    <span class="hljs-keyword">public</span> <span class="hljs-keyword">var</span> inputTokens: <span class="hljs-type">Int</span>
+    <span class="hljs-keyword">public</span> <span class="hljs-keyword">var</span> outputTokens: <span class="hljs-type">Int</span>
+    <span class="hljs-keyword">public</span> <span class="hljs-keyword">var</span> attempts: <span class="hljs-type">Int</span>
+    <span class="hljs-keyword">public</span> <span class="hljs-keyword">var</span> rotation: <span class="hljs-type">Int</span>
+    <span class="hljs-keyword">public</span> <span class="hljs-keyword">var</span> temperature: <span class="hljs-type">Float</span>
+    <span class="hljs-keyword">public</span> <span class="hljs-keyword">var</span> isFallback: <span class="hljs-type">Bool</span>
+    <span class="hljs-keyword">public</span> <span class="hljs-keyword">var</span> isValid: <span class="hljs-type">Bool</span>
+    <span class="hljs-keyword">public</span> <span class="hljs-keyword">var</span> needsChecking: <span class="hljs-type">Bool</span>
+    <span class="hljs-keyword">public</span> <span class="hljs-keyword">var</span> problem: <span class="hljs-type">String</span>?
+    <span class="hljs-keyword">public</span> <span class="hljs-keyword">var</span> seconds: <span class="hljs-type">Double</span>
+    <span class="hljs-keyword">public</span> <span class="hljs-keyword">var</span> finishedAt: <span class="hljs-type">Date</span>? <span class="hljs-operator">=</span> <span class="hljs-literal">nil</span>
+    <span class="hljs-keyword">public</span> <span class="hljs-keyword">var</span> tokenLimit: <span class="hljs-type">Int</span>? <span class="hljs-operator">=</span> <span class="hljs-literal">nil</span>
+    <span class="hljs-keyword">public</span> <span class="hljs-keyword">var</span> stopOnRepetition: <span class="hljs-type">Bool</span>? <span class="hljs-operator">=</span> <span class="hljs-literal">nil</span>
+}
+
+<span class="hljs-keyword">public</span> <span class="hljs-keyword">struct</span> <span class="hljs-title class_">RawGeneration</span>: <span class="hljs-title class_">Sendable</span> {
+    <span class="hljs-keyword">public</span> <span class="hljs-keyword">var</span> text: <span class="hljs-type">String</span>
+    <span class="hljs-keyword">public</span> <span class="hljs-keyword">var</span> promptTokens: <span class="hljs-type">Int</span>
+    <span class="hljs-keyword">public</span> <span class="hljs-keyword">var</span> outputTokens: <span class="hljs-type">Int</span>
+    <span class="hljs-keyword">public</span> <span class="hljs-keyword">var</span> tokensPerSecond: <span class="hljs-type">Double</span>
+    <span class="hljs-keyword">public</span> <span class="hljs-keyword">var</span> stoppedForRepetition <span class="hljs-operator">=</span> <span class="hljs-literal">false</span>
+}</pre></div>
+        
+      
+        
+        <h4 id="check-for-repeats">Check for repeats</h4>
+<p>This is a custom function which checks if olmOCR is stuck in a long looping output. LLMs are prone to looping, especially at low temperatures. Rather than waiting for that loop to reach the olmOCR limit, this application has its own check, checking whether the past 1,000 cycle through 250.</p>
+
+        
+          <div class='highlight'><pre>
+<span class="hljs-keyword">public</span> <span class="hljs-keyword">let</span> repetitionWindow <span class="hljs-operator">=</span> <span class="hljs-number">1000</span>
+<span class="hljs-keyword">public</span> <span class="hljs-keyword">let</span> repetitionMaxUnit <span class="hljs-operator">=</span> <span class="hljs-number">250</span>
+
+<span class="hljs-keyword">public</span> <span class="hljs-keyword">func</span> <span class="hljs-title function_">isRepeating</span>(<span class="hljs-keyword">_</span> <span class="hljs-params">tokens</span>: [<span class="hljs-type">Int</span>]) -&gt; <span class="hljs-type">Bool</span> {
+    <span class="hljs-keyword">let</span> count <span class="hljs-operator">=</span> tokens.count
+    <span class="hljs-keyword">guard</span> count <span class="hljs-operator">&gt;=</span> repetitionWindow <span class="hljs-keyword">else</span> {
+        <span class="hljs-keyword">return</span> <span class="hljs-literal">false</span>
+    }
+    <span class="hljs-keyword">let</span> start <span class="hljs-operator">=</span> count <span class="hljs-operator">-</span> repetitionWindow
+    <span class="hljs-keyword">for</span> unit <span class="hljs-keyword">in</span> <span class="hljs-number">1</span><span class="hljs-operator">...</span>repetitionMaxUnit {
+        <span class="hljs-keyword">var</span> periodic <span class="hljs-operator">=</span> <span class="hljs-literal">true</span>
+        <span class="hljs-keyword">var</span> index <span class="hljs-operator">=</span> start <span class="hljs-operator">+</span> unit
+        <span class="hljs-keyword">while</span> index <span class="hljs-operator">&lt;</span> count {
+            <span class="hljs-keyword">if</span> tokens[index] <span class="hljs-operator">!=</span> tokens[index <span class="hljs-operator">-</span> unit] {
+                periodic <span class="hljs-operator">=</span> <span class="hljs-literal">false</span>
+                <span class="hljs-keyword">break</span>
+            }
+            index <span class="hljs-operator">+=</span> <span class="hljs-number">1</span>
+        }
+        <span class="hljs-keyword">if</span> periodic {
+            <span class="hljs-keyword">return</span> <span class="hljs-literal">true</span>
+        }
+    }
+    <span class="hljs-keyword">return</span> <span class="hljs-literal">false</span>
+}</pre></div>
+        
+      
+        
+        <p>A simple flag for the repetition.</p>
+
+        
+          <div class='highlight'><pre>
+<span class="hljs-keyword">final</span> <span class="hljs-keyword">class</span> <span class="hljs-title class_">RepetitionFlag</span>: @<span class="hljs-title class_">unchecked</span> <span class="hljs-title class_">Sendable</span> {
+    <span class="hljs-keyword">var</span> stopped <span class="hljs-operator">=</span> <span class="hljs-literal">false</span>
+}</pre></div>
+        
+      
+        
+        <p>The olmOCR output is in a fixed format, so this just cleans it up a little bit, removing some of the whitespace, new lines, and alike.</p>
+
+        
+          <div class='highlight'><pre><span class="hljs-keyword">public</span> <span class="hljs-keyword">func</span> <span class="hljs-title function_">parseResponse</span>(<span class="hljs-keyword">_</span> <span class="hljs-params">raw</span>: <span class="hljs-type">String</span>) -&gt; <span class="hljs-type">PageResponse</span>? {
+    <span class="hljs-keyword">var</span> text <span class="hljs-operator">=</span> raw.trimmingCharacters(in: .whitespacesAndNewlines)
+    <span class="hljs-keyword">if</span> text.hasPrefix(<span class="hljs-string">&quot;```&quot;</span>) {
+        <span class="hljs-keyword">var</span> lines <span class="hljs-operator">=</span> text.components(separatedBy: <span class="hljs-string">&quot;<span class="hljs-subst">\n</span>&quot;</span>)
+        lines.removeFirst()
+        <span class="hljs-keyword">if</span> <span class="hljs-keyword">let</span> last <span class="hljs-operator">=</span> lines.last, last.trimmingCharacters(in: .whitespaces) <span class="hljs-operator">==</span> <span class="hljs-string">&quot;```&quot;</span> {
+            lines.removeLast()
+        }
+        text <span class="hljs-operator">=</span> lines.joined(separator: <span class="hljs-string">&quot;<span class="hljs-subst">\n</span>&quot;</span>)
+    }
+    <span class="hljs-keyword">guard</span> text.hasPrefix(<span class="hljs-string">&quot;---<span class="hljs-subst">\n</span>&quot;</span>) <span class="hljs-keyword">else</span> {
+        <span class="hljs-keyword">return</span> <span class="hljs-literal">nil</span>
+    }
+    <span class="hljs-keyword">let</span> afterOpening <span class="hljs-operator">=</span> text.index(text.startIndex, offsetBy: <span class="hljs-number">4</span>)
+    <span class="hljs-keyword">guard</span> <span class="hljs-keyword">let</span> closing <span class="hljs-operator">=</span> text.range(of: <span class="hljs-string">&quot;<span class="hljs-subst">\n</span>---&quot;</span>, range: afterOpening<span class="hljs-operator">..&lt;</span>text.endIndex) <span class="hljs-keyword">else</span> {
+        <span class="hljs-keyword">return</span> <span class="hljs-literal">nil</span>
+    }
+    <span class="hljs-keyword">var</span> values: [<span class="hljs-type">String</span>: <span class="hljs-type">String</span>] <span class="hljs-operator">=</span> [:]
+    <span class="hljs-keyword">for</span> line <span class="hljs-keyword">in</span> text[afterOpening<span class="hljs-operator">..&lt;</span>closing.lowerBound].components(separatedBy: <span class="hljs-string">&quot;<span class="hljs-subst">\n</span>&quot;</span>) {
+        <span class="hljs-keyword">let</span> parts <span class="hljs-operator">=</span> line.split(separator: <span class="hljs-string">&quot;:&quot;</span>, maxSplits: <span class="hljs-number">1</span>).map { <span class="hljs-variable">$0</span>.trimmingCharacters(in: .whitespaces) }
+        <span class="hljs-keyword">if</span> parts.count <span class="hljs-operator">==</span> <span class="hljs-number">2</span> {
+            values[parts[<span class="hljs-number">0</span>]] <span class="hljs-operator">=</span> parts[<span class="hljs-number">1</span>]
+        }
+    }
+    <span class="hljs-keyword">func</span> <span class="hljs-title function_">bool</span>(<span class="hljs-keyword">_</span> <span class="hljs-params">key</span>: <span class="hljs-type">String</span>) -&gt; <span class="hljs-type">Bool</span>? {
+        <span class="hljs-keyword">switch</span> values[key]<span class="hljs-operator">?</span>.lowercased() {
+        <span class="hljs-keyword">case</span> <span class="hljs-string">&quot;true&quot;</span>: <span class="hljs-keyword">return</span> <span class="hljs-literal">true</span>
+        <span class="hljs-keyword">case</span> <span class="hljs-string">&quot;false&quot;</span>: <span class="hljs-keyword">return</span> <span class="hljs-literal">false</span>
+        <span class="hljs-keyword">default</span>: <span class="hljs-keyword">return</span> <span class="hljs-literal">nil</span>
+        }
+    }
+    <span class="hljs-keyword">guard</span> <span class="hljs-keyword">let</span> language <span class="hljs-operator">=</span> values[<span class="hljs-string">&quot;primary_language&quot;</span>],
+        <span class="hljs-keyword">let</span> rotationValid <span class="hljs-operator">=</span> bool(<span class="hljs-string">&quot;is_rotation_valid&quot;</span>),
+        <span class="hljs-keyword">let</span> rotationText <span class="hljs-operator">=</span> values[<span class="hljs-string">&quot;rotation_correction&quot;</span>], <span class="hljs-keyword">let</span> rotation <span class="hljs-operator">=</span> <span class="hljs-type">Int</span>(rotationText),
+        [<span class="hljs-number">0</span>, <span class="hljs-number">90</span>, <span class="hljs-number">180</span>, <span class="hljs-number">270</span>].contains(rotation),
+        <span class="hljs-keyword">let</span> isTable <span class="hljs-operator">=</span> bool(<span class="hljs-string">&quot;is_table&quot;</span>),
+        <span class="hljs-keyword">let</span> isDiagram <span class="hljs-operator">=</span> bool(<span class="hljs-string">&quot;is_diagram&quot;</span>)
+    <span class="hljs-keyword">else</span> {
+        <span class="hljs-keyword">return</span> <span class="hljs-literal">nil</span>
+    }
+    <span class="hljs-keyword">let</span> noLanguage <span class="hljs-operator">=</span> [<span class="hljs-string">&quot;&quot;</span>, <span class="hljs-string">&quot;null&quot;</span>, <span class="hljs-string">&quot;none&quot;</span>, <span class="hljs-string">&quot;~&quot;</span>].contains(language.lowercased())
+    <span class="hljs-keyword">let</span> body <span class="hljs-operator">=</span> <span class="hljs-type">String</span>(text[closing.upperBound<span class="hljs-operator">...</span>]).trimmingCharacters(in: .whitespacesAndNewlines)
+    <span class="hljs-keyword">return</span> <span class="hljs-type">PageResponse</span>(
+        primaryLanguage: noLanguage <span class="hljs-operator">?</span> nil : language,
+        isRotationValid: rotationValid,
+        rotationCorrection: rotation,
+        isTable: isTable,
+        isDiagram: isDiagram,
+        naturalText: body.isEmpty <span class="hljs-operator">?</span> nil : body
+    )
+}
+
+<span class="hljs-keyword">public</span> <span class="hljs-keyword">struct</span> <span class="hljs-title class_">PageAttempt</span>: <span class="hljs-title class_">Sendable</span> {
+    <span class="hljs-keyword">public</span> <span class="hljs-keyword">var</span> page: <span class="hljs-type">Int</span>
+    <span class="hljs-keyword">public</span> <span class="hljs-keyword">var</span> number: <span class="hljs-type">Int</span>
+    <span class="hljs-keyword">public</span> <span class="hljs-keyword">var</span> total: <span class="hljs-type">Int</span>
+    <span class="hljs-keyword">public</span> <span class="hljs-keyword">var</span> temperature: <span class="hljs-type">Float</span>
+    <span class="hljs-keyword">public</span> <span class="hljs-keyword">var</span> rotation: <span class="hljs-type">Int</span>
+    <span class="hljs-keyword">public</span> <span class="hljs-keyword">var</span> previousProblem: <span class="hljs-type">String</span>?
+}</pre></div>
+        
+      
+        
+        <h3 id="ocr-engine">OCR Engine</h3>
+<p>This is the core of loading the model and sending the image to be transcribed.</p>
+
+        
+          <div class='highlight'><pre><span class="hljs-keyword">public</span> <span class="hljs-keyword">actor</span> <span class="hljs-title class_">OCREngine</span> {</pre></div>
+        
+      
+        
+        <p>All the core variables for the model:</p>
+
+        
+          <div class='highlight'><pre>    <span class="hljs-keyword">public</span> <span class="hljs-keyword">let</span> modelDirectory: <span class="hljs-type">URL</span>
+    <span class="hljs-keyword">public</span> <span class="hljs-keyword">let</span> modelName: <span class="hljs-type">String</span>
+    <span class="hljs-keyword">public</span> <span class="hljs-keyword">let</span> modelRevision: <span class="hljs-type">String</span>?
+    <span class="hljs-keyword">private</span> <span class="hljs-keyword">let</span> container: <span class="hljs-type">ModelContainer</span>
+    <span class="hljs-keyword">private</span> <span class="hljs-keyword">var</span> attemptHandler: (<span class="hljs-meta">@Sendable</span> (<span class="hljs-type">PageAttempt</span>) -&gt; <span class="hljs-type">Void</span>)<span class="hljs-operator">?</span>
+    <span class="hljs-keyword">private</span> <span class="hljs-keyword">var</span> tokenHandler: (<span class="hljs-meta">@Sendable</span> (<span class="hljs-type">Int</span>) -&gt; <span class="hljs-type">Void</span>)<span class="hljs-operator">?</span>
+    <span class="hljs-keyword">private</span> <span class="hljs-keyword">var</span> tokenLimit <span class="hljs-operator">=</span> defaultTokenLimit
+    <span class="hljs-keyword">private</span> <span class="hljs-keyword">var</span> stopOnRepetition <span class="hljs-operator">=</span> <span class="hljs-literal">true</span>
+    <span class="hljs-keyword">private</span> <span class="hljs-keyword">var</span> lastProblem: <span class="hljs-type">String</span>?
+
+    <span class="hljs-keyword">private</span> <span class="hljs-keyword">init</span>(<span class="hljs-params">modelDirectory</span>: <span class="hljs-type">URL</span>, <span class="hljs-params">modelName</span>: <span class="hljs-type">String</span>, <span class="hljs-params">modelRevision</span>: <span class="hljs-type">String</span>?, <span class="hljs-params">container</span>: <span class="hljs-type">ModelContainer</span>) {
+        <span class="hljs-keyword">self</span>.modelDirectory <span class="hljs-operator">=</span> modelDirectory
+        <span class="hljs-keyword">self</span>.modelName <span class="hljs-operator">=</span> modelName
+        <span class="hljs-keyword">self</span>.modelRevision <span class="hljs-operator">=</span> modelRevision
+        <span class="hljs-keyword">self</span>.container <span class="hljs-operator">=</span> container
+    }</pre></div>
+        
+      
+        
+        <p>Load the actual model and use the Hugging Face tokenizer:</p>
+
+        
+          <div class='highlight'><pre>    <span class="hljs-keyword">public</span> <span class="hljs-keyword">static</span> <span class="hljs-keyword">func</span> <span class="hljs-title function_">load</span>(<span class="hljs-params">modelDirectory</span>: <span class="hljs-type">URL</span>) <span class="hljs-keyword">async</span> <span class="hljs-keyword">throws</span> -&gt; <span class="hljs-type">OCREngine</span> {
+        <span class="hljs-keyword">let</span> prepared <span class="hljs-operator">=</span> <span class="hljs-keyword">try</span> <span class="hljs-type">ModelStore</span>.prepare(modelDirectory)
+        <span class="hljs-type">Memory</span>.cacheLimit <span class="hljs-operator">=</span> memoryCacheLimit(for: <span class="hljs-type">ModelStore</span>.modelName(for: modelDirectory))
+        <span class="hljs-keyword">let</span> container <span class="hljs-operator">=</span> <span class="hljs-keyword">try</span> <span class="hljs-keyword">await</span> loadModelContainer(from: prepared, using: #huggingFaceTokenizerLoader())
+        <span class="hljs-keyword">return</span> <span class="hljs-type">OCREngine</span>(
+            modelDirectory: prepared,
+            modelName: <span class="hljs-type">ModelStore</span>.modelName(for: modelDirectory),
+            modelRevision: readModelRevision(directory: modelDirectory),
+            container: container)
+    }</pre></div>
+        
+      
+        
+        <h3 id="transcribe">Transcribe</h3>
+<p>This is the function that, as the name suggests, sends the image to the model and gets the raw output tokens back.</p>
+
+        
+          <div class='highlight'><pre>    <span class="hljs-keyword">public</span> <span class="hljs-keyword">func</span> <span class="hljs-title function_">transcribe</span>(<span class="hljs-params">image</span>: <span class="hljs-type">CIImage</span>, <span class="hljs-params">temperature</span>: <span class="hljs-type">Float</span>, <span class="hljs-params">seed</span>: <span class="hljs-type">UInt64</span>) <span class="hljs-keyword">async</span> <span class="hljs-keyword">throws</span> -&gt; <span class="hljs-type">RawGeneration</span> {
+        <span class="hljs-keyword">let</span> parameters <span class="hljs-operator">=</span> <span class="hljs-type">GenerateParameters</span>(maxTokens: tokenLimit, temperature: temperature, seed: seed)
+        <span class="hljs-keyword">let</span> onTokens <span class="hljs-operator">=</span> tokenHandler
+        <span class="hljs-keyword">let</span> checkRepetition <span class="hljs-operator">=</span> stopOnRepetition
+        <span class="hljs-keyword">let</span> flag <span class="hljs-operator">=</span> <span class="hljs-type">RepetitionFlag</span>()</pre></div>
+        
+      
+        
+        <p>This is the part where the prompt and image are sent to the model, using MLX for GPU acceleration on Apple Silicon.</p>
+
+        
+          <div class='highlight'><pre>        <span class="hljs-keyword">let</span> generation <span class="hljs-operator">=</span> <span class="hljs-keyword">try</span> <span class="hljs-keyword">await</span> container.perform { context <span class="hljs-keyword">in</span>
+            <span class="hljs-keyword">let</span> messages: [<span class="hljs-type">MLXLMCommon</span>.<span class="hljs-type">Message</span>] <span class="hljs-operator">=</span> [
+                [
+                    <span class="hljs-string">&quot;role&quot;</span>: <span class="hljs-string">&quot;user&quot;</span>,
+                    <span class="hljs-string">&quot;content&quot;</span>: [
+                        [<span class="hljs-string">&quot;type&quot;</span>: <span class="hljs-string">&quot;text&quot;</span>, <span class="hljs-string">&quot;text&quot;</span>: olmOCRPrompt],
+                        [<span class="hljs-string">&quot;type&quot;</span>: <span class="hljs-string">&quot;image&quot;</span>],
+                    ],
+                ]
+            ]
+            <span class="hljs-keyword">let</span> input <span class="hljs-operator">=</span> <span class="hljs-type">UserInput</span>(
+                prompt: .messages(messages),
+                images: [<span class="hljs-type">UserInput</span>.<span class="hljs-type">Image</span>(source: .ciImage(image))],
+                processing: .<span class="hljs-keyword">init</span>(maxPixels: modelMaxPixels)
+            )
+            <span class="hljs-keyword">let</span> prepared <span class="hljs-operator">=</span> <span class="hljs-keyword">try</span> <span class="hljs-keyword">await</span> context.processor.prepare(input: input)</pre></div>
+        
+      
+        
+        <p>This part of the generation checks every 100 tokens, reports progress and stops if the model is repeating.</p>
+
+        
+          <div class='highlight'><pre>            <span class="hljs-keyword">let</span> result <span class="hljs-operator">=</span> <span class="hljs-keyword">try</span> <span class="hljs-type">MLXLMCommon</span>.generate(input: prepared, parameters: parameters, context: context) {
+                (tokens: [<span class="hljs-type">Int</span>]) -&gt; <span class="hljs-type">GenerateDisposition</span> <span class="hljs-keyword">in</span>
+                <span class="hljs-keyword">if</span> tokens.count <span class="hljs-operator">%</span> <span class="hljs-number">100</span> <span class="hljs-operator">==</span> <span class="hljs-number">0</span> {
+                    onTokens<span class="hljs-operator">?</span>(tokens.count)
+                    <span class="hljs-keyword">if</span> checkRepetition <span class="hljs-operator">&amp;&amp;</span> isRepeating(tokens) {
+                        flag.stopped <span class="hljs-operator">=</span> <span class="hljs-literal">true</span>
+                        <span class="hljs-keyword">return</span> .stop
+                    }
+                }
+                <span class="hljs-keyword">return</span> <span class="hljs-type">Task</span>.isCancelled <span class="hljs-operator">?</span> .stop : .more
+            }</pre></div>
+        
+      
+        
+        <p>The output returned is the OCR, the input and output tokens, and speed (tokens per second).</p>
+
+        
+          <div class='highlight'><pre>            <span class="hljs-keyword">return</span> <span class="hljs-type">RawGeneration</span>(
+                text: result.output,
+                promptTokens: result.promptTokenCount,
+                outputTokens: result.generationTokenCount,
+                tokensPerSecond: result.tokensPerSecond,
+                stoppedForRepetition: flag.stopped
+            )
+        }</pre></div>
+        
+      
+        
+        <p>Clear the memory cache between images so that the new image can be loaded into model memory.</p>
+
+        
+          <div class='highlight'><pre>        <span class="hljs-type">Memory</span>.clearCache()
+        <span class="hljs-keyword">try</span> <span class="hljs-type">Task</span>.checkCancellation()
+        <span class="hljs-keyword">return</span> generation
+    }</pre></div>
+        
+      
+        
+        <h3 id="attempts">Attempts</h3>
+<p>Each time the function is called it sets up with the new temperature and attempts to transcribe.</p>
+
+        
+          <div class='highlight'><pre>    <span class="hljs-keyword">func</span> <span class="hljs-title function_">attempt</span>(<span class="hljs-params">image</span>: <span class="hljs-type">CIImage</span>, <span class="hljs-params">page</span>: <span class="hljs-type">Int</span>, <span class="hljs-params">attempt</span>: <span class="hljs-type">Int</span>, <span class="hljs-params">rotation</span>: <span class="hljs-type">Int</span>) <span class="hljs-keyword">async</span> <span class="hljs-keyword">throws</span> -&gt; <span class="hljs-type">PageResult</span>? {
+        <span class="hljs-keyword">let</span> start <span class="hljs-operator">=</span> <span class="hljs-type">Date</span>()
+        <span class="hljs-keyword">let</span> temperature <span class="hljs-operator">=</span> temperatureByAttempt[<span class="hljs-built_in">min</span>(attempt, temperatureByAttempt.count <span class="hljs-operator">-</span> <span class="hljs-number">1</span>)]
+        attemptHandler<span class="hljs-operator">?</span>(
+            <span class="hljs-type">PageAttempt</span>(
+                page: page, number: attempt <span class="hljs-operator">+</span> <span class="hljs-number">1</span>, total: maxAttempts, temperature: temperature, rotation: rotation,
+                previousProblem: lastProblem))
+        <span class="hljs-keyword">let</span> rotated <span class="hljs-operator">=</span> rotateCounterClockwise(image, degrees: rotation)
+        <span class="hljs-keyword">let</span> generation <span class="hljs-operator">=</span> <span class="hljs-keyword">try</span> <span class="hljs-keyword">await</span> transcribe(image: rotated, temperature: temperature, seed: <span class="hljs-type">UInt64</span>(attempt))
+        <span class="hljs-keyword">let</span> runaway <span class="hljs-operator">=</span> generation.stoppedForRepetition</pre></div>
+        
+      
+        
+        <p>Check whether the model returned a response, and if not, return why:</p>
+
+        
+          <div class='highlight'><pre>        <span class="hljs-keyword">guard</span> <span class="hljs-keyword">let</span> response <span class="hljs-operator">=</span> parseResponse(generation.text) <span class="hljs-keyword">else</span> {</pre></div>
+        
+      
+        
+        <p>If it started repeating itself:</p>
+
+        
+          <div class='highlight'><pre>            <span class="hljs-keyword">if</span> runaway {
+                lastProblem <span class="hljs-operator">=</span> <span class="hljs-string">&quot;the model started repeating itself&quot;</span></pre></div>
+        
+      
+        
+        <p>Or if it hit the maximum token limit:</p>
+
+        
+          <div class='highlight'><pre>            } <span class="hljs-keyword">else</span> <span class="hljs-keyword">if</span> generation.outputTokens <span class="hljs-operator">&gt;=</span> tokenLimit {
+                lastProblem <span class="hljs-operator">=</span> <span class="hljs-string">&quot;hit the <span class="hljs-subst">\(tokenLimit)</span>-token limit (the model may be repeating itself)&quot;</span></pre></div>
+        
+      
+        
+        <p>Or otherwise something else went wrong with the response:</p>
+
+        
+          <div class='highlight'><pre>            } <span class="hljs-keyword">else</span> {
+                lastProblem <span class="hljs-operator">=</span> <span class="hljs-string">&quot;answer could not be read&quot;</span>
+            }
+            <span class="hljs-keyword">return</span> <span class="hljs-literal">nil</span>
+        }</pre></div>
+        
+      
+        
+        <p>A similar set of checks, but this time when the model did return something.</p>
+<p>First check for hitting the token limit or repeating itself:</p>
+
+        
+          <div class='highlight'><pre>        <span class="hljs-keyword">let</span> hitLimit <span class="hljs-operator">=</span> generation.outputTokens <span class="hljs-operator">&gt;=</span> tokenLimit <span class="hljs-operator">||</span> runaway</pre></div>
+        
+      
+        
+        <p>And then record the problem:</p>
+
+        
+          <div class='highlight'><pre>        <span class="hljs-keyword">if</span> runaway {
+            lastProblem <span class="hljs-operator">=</span> <span class="hljs-string">&quot;the model started repeating itself&quot;</span>
+        } <span class="hljs-keyword">else</span> <span class="hljs-keyword">if</span> hitLimit {
+            lastProblem <span class="hljs-operator">=</span> <span class="hljs-string">&quot;hit the <span class="hljs-subst">\(tokenLimit)</span>-token limit (the model may be repeating itself)&quot;</span>
+        } <span class="hljs-keyword">else</span> <span class="hljs-keyword">if</span> <span class="hljs-operator">!</span>response.isRotationValid {
+            lastProblem <span class="hljs-operator">=</span> <span class="hljs-string">&quot;page looked rotated by <span class="hljs-subst">\(response.rotationCorrection)</span>°&quot;</span>
+        } <span class="hljs-keyword">else</span> {
+            lastProblem <span class="hljs-operator">=</span> <span class="hljs-literal">nil</span>
+        }
+        <span class="hljs-keyword">let</span> tooLong <span class="hljs-operator">=</span> generation.promptTokens <span class="hljs-operator">+</span> generation.outputTokens <span class="hljs-operator">&gt;</span> modelMaxContext</pre></div>
+        
+      
+        
+        <p>Finally, for each attempt, return the PageResult, which includes all the core information, including the OCR response.</p>
+
+        
+          <div class='highlight'><pre>        <span class="hljs-keyword">return</span> <span class="hljs-type">PageResult</span>(
+            page: page,
+            response: response,
+            inputTokens: generation.promptTokens,
+            outputTokens: generation.outputTokens,
+            attempts: attempt <span class="hljs-operator">+</span> <span class="hljs-number">1</span>,
+            rotation: rotation,
+            temperature: temperature,
+            isFallback: <span class="hljs-literal">false</span>,
+            isValid: <span class="hljs-operator">!</span>hitLimit <span class="hljs-operator">&amp;&amp;</span> <span class="hljs-operator">!</span>tooLong,
+            needsChecking: <span class="hljs-literal">false</span>,
+            problem: runaway
+                <span class="hljs-operator">?</span> <span class="hljs-string">&quot;Output was stopped because the model started repeating itself.&quot;</span>
+                : (hitLimit <span class="hljs-operator">?</span> <span class="hljs-string">&quot;Output was cut off (the model may have repeated itself).&quot;</span> : <span class="hljs-literal">nil</span>),
+            seconds: <span class="hljs-type">Date</span>().timeIntervalSince(start)
+        )
+    }</pre></div>
+        
+      
+        
+        <h3 id="rotation">Rotation</h3>
+<p>This function handles various page processing for the OCR, but mainly rotating the page if it is the wrong orientation.</p>
+
+        
+          <div class='highlight'><pre>    <span class="hljs-keyword">public</span> <span class="hljs-keyword">func</span> <span class="hljs-title function_">processPage</span>(
+        <span class="hljs-params">image</span>: <span class="hljs-type">CIImage</span>, <span class="hljs-params">page</span>: <span class="hljs-type">Int</span>, <span class="hljs-params">fallbackText</span>: <span class="hljs-type">String</span>?,
+        <span class="hljs-params">tokenLimit</span>: <span class="hljs-type">Int</span> <span class="hljs-operator">=</span> defaultTokenLimit,
+        <span class="hljs-params">stopOnRepetition</span>: <span class="hljs-type">Bool</span> <span class="hljs-operator">=</span> <span class="hljs-literal">true</span>,
+        <span class="hljs-params">onAttempt</span>: (<span class="hljs-meta">@Sendable</span> (<span class="hljs-type">PageAttempt</span>) -&gt; <span class="hljs-type">Void</span>)<span class="hljs-operator">?</span> <span class="hljs-operator">=</span> <span class="hljs-literal">nil</span>,
+        <span class="hljs-params">onTokens</span>: (<span class="hljs-meta">@Sendable</span> (<span class="hljs-type">Int</span>) -&gt; <span class="hljs-type">Void</span>)<span class="hljs-operator">?</span> <span class="hljs-operator">=</span> <span class="hljs-literal">nil</span>
+    ) <span class="hljs-keyword">async</span> <span class="hljs-keyword">throws</span> -&gt; <span class="hljs-type">PageResult</span> {
+        <span class="hljs-keyword">self</span>.tokenLimit <span class="hljs-operator">=</span> <span class="hljs-built_in">min</span>(tokenLimit, maxTokens)
+        <span class="hljs-keyword">self</span>.stopOnRepetition <span class="hljs-operator">=</span> stopOnRepetition
+        attemptHandler <span class="hljs-operator">=</span> onAttempt
+        tokenHandler <span class="hljs-operator">=</span> onTokens
+        lastProblem <span class="hljs-operator">=</span> <span class="hljs-literal">nil</span>
+        <span class="hljs-keyword">defer</span> {
+            attemptHandler <span class="hljs-operator">=</span> <span class="hljs-literal">nil</span>
+            tokenHandler <span class="hljs-operator">=</span> <span class="hljs-literal">nil</span>
+        }
+        <span class="hljs-keyword">let</span> start <span class="hljs-operator">=</span> <span class="hljs-type">Date</span>()
+        <span class="hljs-keyword">var</span> result <span class="hljs-operator">=</span> <span class="hljs-keyword">try</span> <span class="hljs-keyword">await</span> attempt(image: image, page: page, attempt: <span class="hljs-number">0</span>, rotation: <span class="hljs-number">0</span>)</pre></div>
+        
+      
+        
+        <p>If on the first attempt, everything was fine, simply return the first response:</p>
+
+        
+          <div class='highlight'><pre>        <span class="hljs-keyword">if</span> <span class="hljs-keyword">let</span> first <span class="hljs-operator">=</span> result, first.isValid, first.response.isRotationValid {
+            <span class="hljs-keyword">return</span> first
+        }</pre></div>
+        
+      
+        
+        <p>Else if the first attempt was not valid, try rotating by the amount suggested by the model.
+And then repeat that until either get a valid response or have tried all the rotations.</p>
+
+        
+          <div class='highlight'><pre>        <span class="hljs-keyword">if</span> <span class="hljs-keyword">let</span> first <span class="hljs-operator">=</span> result, <span class="hljs-operator">!</span>first.response.isRotationValid {
+            <span class="hljs-keyword">var</span> rotation <span class="hljs-operator">=</span> first.response.rotationCorrection <span class="hljs-operator">%</span> <span class="hljs-number">360</span>
+            <span class="hljs-keyword">for</span> number <span class="hljs-keyword">in</span> <span class="hljs-number">1</span><span class="hljs-operator">..&lt;</span>maxAttempts {
+                result <span class="hljs-operator">=</span> <span class="hljs-keyword">try</span> <span class="hljs-keyword">await</span> attempt(image: image, page: page, attempt: number, rotation: rotation)
+                <span class="hljs-keyword">if</span> <span class="hljs-keyword">let</span> current <span class="hljs-operator">=</span> result, current.isValid, current.response.isRotationValid {
+                    <span class="hljs-keyword">return</span> finish(current, start: start)
+                }
+                <span class="hljs-keyword">if</span> <span class="hljs-keyword">let</span> current <span class="hljs-operator">=</span> result {
+                    rotation <span class="hljs-operator">=</span> (rotation <span class="hljs-operator">+</span> current.response.rotationCorrection) <span class="hljs-operator">%</span> <span class="hljs-number">360</span>
+                }
+            }</pre></div>
+        
+      
+        
+        <p>Store a variable to record that the page orientation wasn’t clearly resolved.</p>
+
+        
+          <div class='highlight'><pre>            <span class="hljs-keyword">if</span> <span class="hljs-keyword">var</span> last <span class="hljs-operator">=</span> result, last.isValid {
+                last.needsChecking <span class="hljs-operator">=</span> <span class="hljs-literal">true</span>
+                last.problem <span class="hljs-operator">=</span> <span class="hljs-string">&quot;The model was unsure which way up the page is.&quot;</span>
+                <span class="hljs-keyword">return</span> finish(last, start: start)
+            }
+            <span class="hljs-keyword">return</span> fallback(page: page, fallbackText: fallbackText, lastResult: result, start: start)
+        }</pre></div>
+        
+      
+        
+        <p>A plain attempt to try again at a fixed rotation (0):</p>
+
+        
+          <div class='highlight'><pre>        <span class="hljs-keyword">for</span> number <span class="hljs-keyword">in</span> <span class="hljs-number">1</span><span class="hljs-operator">..&lt;</span>maxAttempts {
+            result <span class="hljs-operator">=</span> <span class="hljs-keyword">try</span> <span class="hljs-keyword">await</span> attempt(image: image, page: page, attempt: number, rotation: <span class="hljs-number">0</span>)
+            <span class="hljs-keyword">if</span> <span class="hljs-keyword">let</span> current <span class="hljs-operator">=</span> result, current.isValid, current.response.isRotationValid {
+                <span class="hljs-keyword">return</span> finish(current, start: start)
+            }
+        }</pre></div>
+        
+      
+        
+        <p>As earlier, report if the model wasn’t sure of the orientation.</p>
+
+        
+          <div class='highlight'><pre>        <span class="hljs-keyword">if</span> <span class="hljs-keyword">var</span> last <span class="hljs-operator">=</span> result, last.isValid {
+            last.needsChecking <span class="hljs-operator">=</span> <span class="hljs-literal">true</span>
+            last.problem <span class="hljs-operator">=</span> <span class="hljs-string">&quot;The model was unsure which way up the page is.&quot;</span>
+            <span class="hljs-keyword">return</span> finish(last, start: start)
+        }</pre></div>
+        
+      
+        
+        <p>If nothing else works, call the fallback function defined below to give some kind of output:</p>
+
+        
+          <div class='highlight'><pre>        <span class="hljs-keyword">return</span> fallback(page: page, fallbackText: fallbackText, lastResult: result, start: start)
+    }</pre></div>
+        
+      
+        
+        <p>End everything, recording the time it took to process the page result.</p>
+
+        
+          <div class='highlight'><pre>    <span class="hljs-keyword">func</span> <span class="hljs-title function_">finish</span>(<span class="hljs-keyword">_</span> <span class="hljs-params">result</span>: <span class="hljs-type">PageResult</span>, <span class="hljs-params">start</span>: <span class="hljs-type">Date</span>) -&gt; <span class="hljs-type">PageResult</span> {
+        <span class="hljs-keyword">var</span> finished <span class="hljs-operator">=</span> result
+        finished.seconds <span class="hljs-operator">=</span> <span class="hljs-type">Date</span>().timeIntervalSince(start)
+        <span class="hljs-keyword">return</span> finished
+    }</pre></div>
+        
+      
+        
+        <h3 id="fallback">Fallback</h3>
+<p>If for some reason everything fails, the OCR simply returns the embedded text in the PDF if available.</p>
+
+        
+          <div class='highlight'><pre>    <span class="hljs-keyword">func</span> <span class="hljs-title function_">fallback</span>(<span class="hljs-params">page</span>: <span class="hljs-type">Int</span>, <span class="hljs-params">fallbackText</span>: <span class="hljs-type">String</span>?, <span class="hljs-params">lastResult</span>: <span class="hljs-type">PageResult</span>?, <span class="hljs-params">start</span>: <span class="hljs-type">Date</span>) -&gt; <span class="hljs-type">PageResult</span> {
+        <span class="hljs-keyword">if</span> <span class="hljs-keyword">let</span> fallbackText {
+            <span class="hljs-keyword">return</span> <span class="hljs-type">PageResult</span>(
+                page: page,
+                response: <span class="hljs-type">PageResponse</span>(
+                    primaryLanguage: <span class="hljs-literal">nil</span>, isRotationValid: <span class="hljs-literal">true</span>, rotationCorrection: <span class="hljs-number">0</span>,
+                    isTable: <span class="hljs-literal">false</span>, isDiagram: <span class="hljs-literal">false</span>, naturalText: fallbackText),
+                inputTokens: <span class="hljs-number">0</span>, outputTokens: <span class="hljs-number">0</span>, attempts: maxAttempts, rotation: <span class="hljs-number">0</span>, temperature: <span class="hljs-number">0</span>,
+                isFallback: <span class="hljs-literal">true</span>, isValid: <span class="hljs-literal">true</span>, needsChecking: <span class="hljs-literal">true</span>,
+                problem: <span class="hljs-string">&quot;OCR could not read this page; the PDF&#x27;s own embedded text was used instead.&quot;</span>,
+                seconds: <span class="hljs-type">Date</span>().timeIntervalSince(start)
+            )
+        }
+        <span class="hljs-keyword">if</span> <span class="hljs-keyword">var</span> last <span class="hljs-operator">=</span> lastResult {
+            last.needsChecking <span class="hljs-operator">=</span> <span class="hljs-literal">true</span>
+            last.isFallback <span class="hljs-operator">=</span> <span class="hljs-literal">false</span>
+            last.problem <span class="hljs-operator">=</span> last.problem <span class="hljs-operator">??</span> <span class="hljs-string">&quot;OCR could not read this page reliably.&quot;</span>
+            last.seconds <span class="hljs-operator">=</span> <span class="hljs-type">Date</span>().timeIntervalSince(start)
+            <span class="hljs-keyword">return</span> last
+        }</pre></div>
+        
+      
+        
+        <p>Or otherwise, simply return a final error that the page could not be read.</p>
+
+        
+          <div class='highlight'><pre>        <span class="hljs-keyword">return</span> <span class="hljs-type">PageResult</span>(
+            page: page,
+            response: <span class="hljs-type">PageResponse</span>(
+                primaryLanguage: <span class="hljs-literal">nil</span>, isRotationValid: <span class="hljs-literal">true</span>, rotationCorrection: <span class="hljs-number">0</span>,
+                isTable: <span class="hljs-literal">false</span>, isDiagram: <span class="hljs-literal">false</span>, naturalText: <span class="hljs-literal">nil</span>),
+            inputTokens: <span class="hljs-number">0</span>, outputTokens: <span class="hljs-number">0</span>, attempts: maxAttempts, rotation: <span class="hljs-number">0</span>, temperature: <span class="hljs-number">0</span>,
+            isFallback: <span class="hljs-literal">true</span>, isValid: <span class="hljs-literal">false</span>, needsChecking: <span class="hljs-literal">true</span>,
+            problem: <span class="hljs-string">&quot;OCR could not read this page.&quot;</span>,
+            seconds: <span class="hljs-type">Date</span>().timeIntervalSince(start)
+        )
+    }
+}</pre></div>
+        
+      
+      <div class="fleur">h</div>
+    </div>
+  </div>
+</body>
+</html>

@@ -1,0 +1,503 @@
+<!DOCTYPE html>
+
+<html>
+<head>
+  <title>ModelDownloader.swift</title>
+  <meta http-equiv="content-type" content="text/html; charset=UTF-8">
+  <link rel="stylesheet" media="all" href="public/stylesheets/normalize.css" />
+  <link rel="stylesheet" media="all" href="../../docco.css" />
+</head>
+<body>
+  <div class="container">
+    <div class="page">
+
+      <div class="header">
+        
+          <h1>ModelDownloader.swift</h1>
+        
+
+        
+          <div class="toc">
+            <h3>Table of Contents</h3>
+            <ol>
+              
+                
+                <li>
+                  <a class="source" href="DocumentJob.html">
+                    Sources/OlmOCRCore/DocumentJob.swift
+                  </a>
+                </li>
+              
+                
+                <li>
+                  <a class="source" href="Exporters.html">
+                    Sources/OlmOCRCore/Exporters.swift
+                  </a>
+                </li>
+              
+                
+                <li>
+                  <a class="source" href="ModelDownloader.html">
+                    Sources/OlmOCRCore/ModelDownloader.swift
+                  </a>
+                </li>
+              
+                
+                <li>
+                  <a class="source" href="ModelStore.html">
+                    Sources/OlmOCRCore/ModelStore.swift
+                  </a>
+                </li>
+              
+                
+                <li>
+                  <a class="source" href="OCREngine.html">
+                    Sources/OlmOCRCore/OCREngine.swift
+                  </a>
+                </li>
+              
+                
+                <li>
+                  <a class="source" href="PageSource.html">
+                    Sources/OlmOCRCore/PageSource.swift
+                  </a>
+                </li>
+              
+                
+                <li>
+                  <a class="source" href="SystemCheck.html">
+                    Sources/OlmOCRCore/SystemCheck.swift
+                  </a>
+                </li>
+              
+                
+                <li>
+                  <a class="source" href="../olmocr/main.html">
+                    Sources/olmocr/main.swift
+                  </a>
+                </li>
+              
+            </ol>
+          </div>
+        
+      </div>
+
+      
+        
+        
+        
+          <div class='highlight'><pre><span class="hljs-comment">/* Declaration: Code generated using Anthropic Claude (Opus 5.5)*/</span></pre></div>
+        
+      
+        
+        <h3 id="code-commentary">Code Commentary</h3>
+<p>All commentary below was written manually by <a href="https://warwick.ac.uk/fac/arts/history/people/staff_index/poskett/">James Poskett</a> (University of Warwick).</p>
+<p>This commentary is for <a href="https://github.com/poskett/Slow-Reading-OCR/releases/tag/v1.1.1">v1.1.1</a>.</p>
+<h3 id="overview">Overview</h3>
+<p>This script defines all the functions for downloading the olmOCR2 model (small or large version) from Hugging Face.</p>
+<h3 id="import-libraries">Import Libraries</h3>
+<p>Here we just need CryptoKit for hashing and Foundation for basic read/write and file handling.</p>
+
+        
+          <div class='highlight'><pre><span class="hljs-keyword">import</span> CryptoKit
+<span class="hljs-keyword">import</span> Foundation</pre></div>
+        
+      
+        
+        <h3 id="variables">Variables</h3>
+<p>Define a set of specialist variables and enums, particularly for recording errors and download progress.</p>
+
+        
+          <div class='highlight'><pre><span class="hljs-keyword">public</span> <span class="hljs-keyword">enum</span> <span class="hljs-title class_">DownloadError</span>: <span class="hljs-title class_">LocalizedError</span> {
+    <span class="hljs-keyword">case</span> listingFailed(<span class="hljs-type">String</span>)
+    <span class="hljs-keyword">case</span> notEnoughSpace(needed: <span class="hljs-type">Int64</span>, available: <span class="hljs-type">Int64</span>)
+    <span class="hljs-keyword">case</span> badResponse(<span class="hljs-type">String</span>, <span class="hljs-type">Int</span>)
+    <span class="hljs-keyword">case</span> sizeMismatch(<span class="hljs-type">String</span>)
+    <span class="hljs-keyword">case</span> checksumMismatch(<span class="hljs-type">String</span>)
+
+    <span class="hljs-keyword">public</span> <span class="hljs-keyword">var</span> errorDescription: <span class="hljs-type">String</span>? {
+        <span class="hljs-keyword">switch</span> <span class="hljs-keyword">self</span> {
+        <span class="hljs-keyword">case</span> .listingFailed(<span class="hljs-keyword">let</span> reason):
+            <span class="hljs-keyword">return</span> <span class="hljs-string">&quot;Could not reach Hugging Face to find the model files (<span class="hljs-subst">\(reason)</span>). Check your internet connection, or use “Import model from folder…” instead.&quot;</span>
+        <span class="hljs-keyword">case</span> .notEnoughSpace(<span class="hljs-keyword">let</span> needed, <span class="hljs-keyword">let</span> available):
+            <span class="hljs-keyword">return</span> <span class="hljs-string">&quot;The model needs <span class="hljs-subst">\(formatBytes(needed))</span> of disk space, but only <span class="hljs-subst">\(formatBytes(available))</span> is free.&quot;</span>
+        <span class="hljs-keyword">case</span> .badResponse(<span class="hljs-keyword">let</span> file, <span class="hljs-keyword">let</span> status):
+            <span class="hljs-keyword">return</span> <span class="hljs-string">&quot;The download of <span class="hljs-subst">\(file)</span> failed (server reply <span class="hljs-subst">\(status)</span>).&quot;</span>
+        <span class="hljs-keyword">case</span> .sizeMismatch(<span class="hljs-keyword">let</span> file):
+            <span class="hljs-keyword">return</span> <span class="hljs-string">&quot;<span class="hljs-subst">\(file)</span> did not download completely. Try again to resume.&quot;</span>
+        <span class="hljs-keyword">case</span> .checksumMismatch(<span class="hljs-keyword">let</span> file):
+            <span class="hljs-keyword">return</span> <span class="hljs-string">&quot;<span class="hljs-subst">\(file)</span> was damaged during download and has been deleted. Try again.&quot;</span>
+        }
+    }
+}
+
+<span class="hljs-keyword">public</span> <span class="hljs-keyword">struct</span> <span class="hljs-title class_">RemoteFile</span>: <span class="hljs-title class_">Codable</span>, <span class="hljs-title class_">Sendable</span> {
+    <span class="hljs-keyword">public</span> <span class="hljs-keyword">var</span> path: <span class="hljs-type">String</span>
+    <span class="hljs-keyword">public</span> <span class="hljs-keyword">var</span> size: <span class="hljs-type">Int64</span>
+    <span class="hljs-keyword">public</span> <span class="hljs-keyword">var</span> sha256: <span class="hljs-type">String</span>?
+}
+
+<span class="hljs-keyword">public</span> <span class="hljs-keyword">struct</span> <span class="hljs-title class_">ModelInfo</span>: <span class="hljs-title class_">Codable</span>, <span class="hljs-title class_">Sendable</span> {
+    <span class="hljs-keyword">public</span> <span class="hljs-keyword">var</span> repo: <span class="hljs-type">String</span>
+    <span class="hljs-keyword">public</span> <span class="hljs-keyword">var</span> revision: <span class="hljs-type">String</span>
+    <span class="hljs-keyword">public</span> <span class="hljs-keyword">var</span> files: [<span class="hljs-type">RemoteFile</span>]
+    <span class="hljs-keyword">public</span> <span class="hljs-keyword">var</span> installed: <span class="hljs-type">Date</span>
+}
+
+<span class="hljs-keyword">public</span> <span class="hljs-keyword">func</span> <span class="hljs-title function_">readModelRevision</span>(<span class="hljs-params">directory</span>: <span class="hljs-type">URL</span>) -&gt; <span class="hljs-type">String</span>? {
+    <span class="hljs-keyword">let</span> infoURL <span class="hljs-operator">=</span> directory.appendingPathComponent(<span class="hljs-string">&quot;model_info.json&quot;</span>)
+    <span class="hljs-keyword">if</span> <span class="hljs-keyword">let</span> data <span class="hljs-operator">=</span> <span class="hljs-keyword">try?</span> <span class="hljs-type">Data</span>(contentsOf: infoURL),
+        <span class="hljs-keyword">let</span> info <span class="hljs-operator">=</span> <span class="hljs-keyword">try?</span> <span class="hljs-type">JSONSerialization</span>.jsonObject(with: data) <span class="hljs-keyword">as?</span> [<span class="hljs-type">String</span>: <span class="hljs-keyword">Any</span>],
+        <span class="hljs-keyword">let</span> revision <span class="hljs-operator">=</span> info[<span class="hljs-string">&quot;revision&quot;</span>] <span class="hljs-keyword">as?</span> <span class="hljs-type">String</span>
+    {
+        <span class="hljs-keyword">return</span> revision
+    }
+    <span class="hljs-keyword">if</span> directory.deletingLastPathComponent().lastPathComponent <span class="hljs-operator">==</span> <span class="hljs-string">&quot;snapshots&quot;</span> {
+        <span class="hljs-keyword">return</span> directory.lastPathComponent
+    }
+    <span class="hljs-keyword">return</span> <span class="hljs-literal">nil</span>
+}
+
+<span class="hljs-keyword">public</span> <span class="hljs-keyword">struct</span> <span class="hljs-title class_">DownloadProgress</span>: <span class="hljs-title class_">Sendable</span> {
+    <span class="hljs-keyword">public</span> <span class="hljs-keyword">var</span> bytesDone: <span class="hljs-type">Int64</span>
+    <span class="hljs-keyword">public</span> <span class="hljs-keyword">var</span> bytesTotal: <span class="hljs-type">Int64</span>
+    <span class="hljs-keyword">public</span> <span class="hljs-keyword">var</span> currentFile: <span class="hljs-type">String</span>
+    <span class="hljs-keyword">public</span> <span class="hljs-keyword">var</span> bytesPerSecond: <span class="hljs-type">Double</span>
+
+    <span class="hljs-keyword">public</span> <span class="hljs-keyword">var</span> fraction: <span class="hljs-type">Double</span> {
+        bytesTotal <span class="hljs-operator">&gt;</span> <span class="hljs-number">0</span> <span class="hljs-operator">?</span> <span class="hljs-type">Double</span>(bytesDone) <span class="hljs-operator">/</span> <span class="hljs-type">Double</span>(bytesTotal) : <span class="hljs-number">0</span>
+    }
+
+    <span class="hljs-keyword">public</span> <span class="hljs-keyword">var</span> secondsRemaining: <span class="hljs-type">Double</span>? {
+        bytesPerSecond <span class="hljs-operator">&gt;</span> <span class="hljs-number">0</span> <span class="hljs-operator">?</span> <span class="hljs-type">Double</span>(bytesTotal <span class="hljs-operator">-</span> bytesDone) <span class="hljs-operator">/</span> bytesPerSecond : <span class="hljs-literal">nil</span>
+    }
+}
+
+<span class="hljs-keyword">let</span> skippedFiles: <span class="hljs-type">Set</span>&lt;<span class="hljs-type">String</span>&gt; <span class="hljs-operator">=</span> [<span class="hljs-string">&quot;.gitattributes&quot;</span>, <span class="hljs-string">&quot;README.md&quot;</span>, <span class="hljs-string">&quot;zero_to_fp32.py&quot;</span>]</pre></div>
+        
+      
+        
+        <h3 id="get-model-information">Get model information</h3>
+<p>This simply pulls the JSON for the model.</p>
+
+        
+          <div class='highlight'><pre><span class="hljs-keyword">func</span> <span class="hljs-title function_">fetchJSON</span>(<span class="hljs-keyword">_</span> <span class="hljs-params">url</span>: <span class="hljs-type">URL</span>) <span class="hljs-keyword">async</span> <span class="hljs-keyword">throws</span> -&gt; <span class="hljs-keyword">Any</span> {
+    <span class="hljs-keyword">let</span> (data, response) <span class="hljs-operator">=</span> <span class="hljs-keyword">try</span> <span class="hljs-keyword">await</span> <span class="hljs-type">URLSession</span>.shared.data(from: url)
+    <span class="hljs-keyword">guard</span> <span class="hljs-keyword">let</span> http <span class="hljs-operator">=</span> response <span class="hljs-keyword">as?</span> <span class="hljs-type">HTTPURLResponse</span>, http.statusCode <span class="hljs-operator">==</span> <span class="hljs-number">200</span> <span class="hljs-keyword">else</span> {
+        <span class="hljs-keyword">throw</span> <span class="hljs-type">DownloadError</span>.listingFailed(<span class="hljs-string">&quot;server reply <span class="hljs-subst">\((response <span class="hljs-keyword">as?</span> HTTPURLResponse)<span class="hljs-operator">?</span>.statusCode <span class="hljs-operator">??</span> <span class="hljs-number">0</span>)</span>&quot;</span>)
+    }
+    <span class="hljs-keyword">return</span> <span class="hljs-keyword">try</span> <span class="hljs-type">JSONSerialization</span>.jsonObject(with: data)
+}</pre></div>
+        
+      
+        
+        <p>This gets the specific repository URLs for the models, using the above JSON function.</p>
+
+        
+          <div class='highlight'><pre><span class="hljs-keyword">public</span> <span class="hljs-keyword">func</span> <span class="hljs-title function_">listRemoteModel</span>(<span class="hljs-params">repo</span>: <span class="hljs-type">String</span>) <span class="hljs-keyword">async</span> <span class="hljs-keyword">throws</span> -&gt; (revision: <span class="hljs-type">String</span>, files: [<span class="hljs-type">RemoteFile</span>]) {
+    <span class="hljs-keyword">do</span> {
+        <span class="hljs-keyword">let</span> revisionInfo <span class="hljs-operator">=</span> <span class="hljs-keyword">try</span> <span class="hljs-keyword">await</span> fetchJSON(<span class="hljs-type">URL</span>(string: <span class="hljs-string">&quot;https://huggingface.co/api/models/<span class="hljs-subst">\(repo)</span>/revision/main&quot;</span>)<span class="hljs-operator">!</span>)
+        <span class="hljs-keyword">guard</span> <span class="hljs-keyword">let</span> revision <span class="hljs-operator">=</span> (revisionInfo <span class="hljs-keyword">as?</span> [String: <span class="hljs-keyword">Any</span>])<span class="hljs-operator">?</span>[<span class="hljs-string">&quot;sha&quot;</span>] <span class="hljs-keyword">as?</span> <span class="hljs-type">String</span> <span class="hljs-keyword">else</span> {
+            <span class="hljs-keyword">throw</span> <span class="hljs-type">DownloadError</span>.listingFailed(<span class="hljs-string">&quot;no revision&quot;</span>)
+        }
+        <span class="hljs-keyword">let</span> tree <span class="hljs-operator">=</span> <span class="hljs-keyword">try</span> <span class="hljs-keyword">await</span> fetchJSON(<span class="hljs-type">URL</span>(string: <span class="hljs-string">&quot;https://huggingface.co/api/models/<span class="hljs-subst">\(repo)</span>/tree/<span class="hljs-subst">\(revision)</span>&quot;</span>)<span class="hljs-operator">!</span>)
+        <span class="hljs-keyword">guard</span> <span class="hljs-keyword">let</span> entries <span class="hljs-operator">=</span> tree <span class="hljs-keyword">as?</span> [[<span class="hljs-type">String</span>: <span class="hljs-keyword">Any</span>]] <span class="hljs-keyword">else</span> {
+            <span class="hljs-keyword">throw</span> <span class="hljs-type">DownloadError</span>.listingFailed(<span class="hljs-string">&quot;unexpected file list&quot;</span>)
+        }
+        <span class="hljs-keyword">let</span> files <span class="hljs-operator">=</span> entries.compactMap { entry -&gt; <span class="hljs-type">RemoteFile</span>? <span class="hljs-keyword">in</span>
+            <span class="hljs-keyword">guard</span> entry[<span class="hljs-string">&quot;type&quot;</span>] <span class="hljs-keyword">as?</span> <span class="hljs-type">String</span> <span class="hljs-operator">==</span> <span class="hljs-string">&quot;file&quot;</span>, <span class="hljs-keyword">let</span> path <span class="hljs-operator">=</span> entry[<span class="hljs-string">&quot;path&quot;</span>] <span class="hljs-keyword">as?</span> <span class="hljs-type">String</span>,
+                <span class="hljs-operator">!</span>skippedFiles.contains(path), <span class="hljs-keyword">let</span> size <span class="hljs-operator">=</span> (entry[<span class="hljs-string">&quot;size&quot;</span>] <span class="hljs-keyword">as?</span> <span class="hljs-type">NSNumber</span>)<span class="hljs-operator">?</span>.int64Value
+            <span class="hljs-keyword">else</span> {
+                <span class="hljs-keyword">return</span> <span class="hljs-literal">nil</span>
+            }
+            <span class="hljs-keyword">let</span> sha <span class="hljs-operator">=</span> (entry[<span class="hljs-string">&quot;lfs&quot;</span>] <span class="hljs-keyword">as?</span> [String: <span class="hljs-keyword">Any</span>])<span class="hljs-operator">?</span>[<span class="hljs-string">&quot;oid&quot;</span>] <span class="hljs-keyword">as?</span> <span class="hljs-type">String</span>
+            <span class="hljs-keyword">return</span> <span class="hljs-type">RemoteFile</span>(path: path, size: size, sha256: sha)
+        }
+        <span class="hljs-keyword">return</span> (revision, files)
+    } <span class="hljs-keyword">catch</span> <span class="hljs-keyword">let</span> error <span class="hljs-keyword">as</span> <span class="hljs-type">DownloadError</span> {
+        <span class="hljs-keyword">throw</span> error
+    } <span class="hljs-keyword">catch</span> {
+        <span class="hljs-keyword">throw</span> <span class="hljs-type">DownloadError</span>.listingFailed(error.localizedDescription)
+    }
+}</pre></div>
+        
+      
+        
+        <p>A hash to check we’ve got the right file and isn’t corrupt.</p>
+
+        
+          <div class='highlight'><pre><span class="hljs-keyword">func</span> <span class="hljs-title function_">sha256OfFile</span>(<span class="hljs-keyword">_</span> <span class="hljs-params">url</span>: <span class="hljs-type">URL</span>) <span class="hljs-keyword">throws</span> -&gt; <span class="hljs-type">String</span> {
+    <span class="hljs-keyword">let</span> handle <span class="hljs-operator">=</span> <span class="hljs-keyword">try</span> <span class="hljs-type">FileHandle</span>(forReadingFrom: url)
+    <span class="hljs-keyword">defer</span> { <span class="hljs-keyword">try?</span> handle.close() }
+    <span class="hljs-keyword">var</span> hasher <span class="hljs-operator">=</span> <span class="hljs-type">SHA256</span>()
+    <span class="hljs-keyword">while</span> <span class="hljs-keyword">let</span> chunk <span class="hljs-operator">=</span> <span class="hljs-keyword">try</span> handle.read(upToCount: <span class="hljs-number">16</span> <span class="hljs-operator">*</span> <span class="hljs-number">1024</span> <span class="hljs-operator">*</span> <span class="hljs-number">1024</span>), <span class="hljs-operator">!</span>chunk.isEmpty {
+        hasher.update(data: chunk)
+    }
+    <span class="hljs-keyword">return</span> hasher.finalize().map { <span class="hljs-type">String</span>(format: <span class="hljs-string">&quot;%02x&quot;</span>, <span class="hljs-variable">$0</span>) }.joined()
+}</pre></div>
+        
+      
+        
+        <h3 id="download">Download</h3>
+<p>This defines a class so we can download the model in chunks, so progress isn’t lost.</p>
+
+        
+          <div class='highlight'><pre><span class="hljs-keyword">final</span> <span class="hljs-keyword">class</span> <span class="hljs-title class_">ChunkDownloader</span>: <span class="hljs-title class_">NSObject</span>, <span class="hljs-title class_">URLSessionDataDelegate</span>, @<span class="hljs-title class_">unchecked</span> <span class="hljs-title class_">Sendable</span> {
+    <span class="hljs-keyword">let</span> destination: <span class="hljs-type">URL</span>
+    <span class="hljs-keyword">let</span> onBytes: <span class="hljs-meta">@Sendable</span> (<span class="hljs-type">Int64</span>) -&gt; <span class="hljs-type">Void</span>
+    <span class="hljs-keyword">var</span> handle: <span class="hljs-type">FileHandle</span>?
+    <span class="hljs-keyword">var</span> continuation: <span class="hljs-type">CheckedContinuation</span>&lt;<span class="hljs-type">Void</span>, <span class="hljs-type">Error</span>&gt;?
+    <span class="hljs-keyword">var</span> status <span class="hljs-operator">=</span> <span class="hljs-number">0</span>
+    <span class="hljs-keyword">let</span> fileName: <span class="hljs-type">String</span>
+
+    <span class="hljs-keyword">init</span>(<span class="hljs-params">destination</span>: <span class="hljs-type">URL</span>, <span class="hljs-params">fileName</span>: <span class="hljs-type">String</span>, <span class="hljs-params">onBytes</span>: <span class="hljs-keyword">@escaping</span> <span class="hljs-meta">@Sendable</span> (<span class="hljs-type">Int64</span>) -&gt; <span class="hljs-type">Void</span>) {
+        <span class="hljs-keyword">self</span>.destination <span class="hljs-operator">=</span> destination
+        <span class="hljs-keyword">self</span>.fileName <span class="hljs-operator">=</span> fileName
+        <span class="hljs-keyword">self</span>.onBytes <span class="hljs-operator">=</span> onBytes
+    }</pre></div>
+        
+      
+        
+        <p>Start a URL session and deal with error codes</p>
+
+        
+          <div class='highlight'><pre>    <span class="hljs-keyword">func</span> <span class="hljs-title function_">urlSession</span>(
+        <span class="hljs-keyword">_</span> <span class="hljs-params">session</span>: <span class="hljs-type">URLSession</span>, <span class="hljs-params">dataTask</span>: <span class="hljs-type">URLSessionDataTask</span>, <span class="hljs-params">didReceive</span> <span class="hljs-params">response</span>: <span class="hljs-type">URLResponse</span>,
+        <span class="hljs-params">completionHandler</span>: <span class="hljs-keyword">@escaping</span> <span class="hljs-meta">@Sendable</span> (<span class="hljs-type">URLSession</span>.<span class="hljs-type">ResponseDisposition</span>) -&gt; <span class="hljs-type">Void</span>
+    ) {
+        status <span class="hljs-operator">=</span> (response <span class="hljs-keyword">as?</span> <span class="hljs-type">HTTPURLResponse</span>)<span class="hljs-operator">?</span>.statusCode <span class="hljs-operator">??</span> <span class="hljs-number">0</span>
+        <span class="hljs-keyword">if</span> status <span class="hljs-operator">==</span> <span class="hljs-number">200</span> {
+            <span class="hljs-keyword">try?</span> <span class="hljs-type">FileManager</span>.default.removeItem(at: destination)
+        }
+        <span class="hljs-keyword">if</span> status <span class="hljs-operator">==</span> <span class="hljs-number">200</span> <span class="hljs-operator">||</span> status <span class="hljs-operator">==</span> <span class="hljs-number">206</span> {
+            <span class="hljs-keyword">if</span> <span class="hljs-operator">!</span><span class="hljs-type">FileManager</span>.default.fileExists(atPath: destination.path) {
+                <span class="hljs-type">FileManager</span>.default.createFile(atPath: destination.path, contents: <span class="hljs-literal">nil</span>)
+            }
+            handle <span class="hljs-operator">=</span> <span class="hljs-keyword">try?</span> <span class="hljs-type">FileHandle</span>(forWritingTo: destination)
+            <span class="hljs-keyword">_</span> <span class="hljs-operator">=</span> <span class="hljs-keyword">try?</span> handle<span class="hljs-operator">?</span>.seekToEnd()
+            completionHandler(.allow)
+        } <span class="hljs-keyword">else</span> {
+            completionHandler(.cancel)
+        }
+    }</pre></div>
+        
+      
+        
+        <p>Write what is returned by the request as raw data</p>
+
+        
+          <div class='highlight'><pre>    <span class="hljs-keyword">func</span> <span class="hljs-title function_">urlSession</span>(<span class="hljs-keyword">_</span> <span class="hljs-params">session</span>: <span class="hljs-type">URLSession</span>, <span class="hljs-params">dataTask</span>: <span class="hljs-type">URLSessionDataTask</span>, <span class="hljs-params">didReceive</span> <span class="hljs-params">data</span>: <span class="hljs-type">Data</span>) {
+        <span class="hljs-keyword">try?</span> handle<span class="hljs-operator">?</span>.write(contentsOf: data)
+        onBytes(<span class="hljs-type">Int64</span>(data.count))
+    }
+
+    <span class="hljs-keyword">func</span> <span class="hljs-title function_">urlSession</span>(<span class="hljs-keyword">_</span> <span class="hljs-params">session</span>: <span class="hljs-type">URLSession</span>, <span class="hljs-params">task</span>: <span class="hljs-type">URLSessionTask</span>, <span class="hljs-params">didCompleteWithError</span> <span class="hljs-params">error</span>: <span class="hljs-type">Error</span>?) {
+        <span class="hljs-keyword">try?</span> handle<span class="hljs-operator">?</span>.close()
+        <span class="hljs-keyword">if</span> <span class="hljs-keyword">let</span> error {
+            continuation<span class="hljs-operator">?</span>.resume(throwing: error)
+        } <span class="hljs-keyword">else</span> <span class="hljs-keyword">if</span> status <span class="hljs-operator">!=</span> <span class="hljs-number">200</span> <span class="hljs-operator">&amp;&amp;</span> status <span class="hljs-operator">!=</span> <span class="hljs-number">206</span> {
+            continuation<span class="hljs-operator">?</span>.resume(throwing: <span class="hljs-type">DownloadError</span>.badResponse(fileName, status))
+        } <span class="hljs-keyword">else</span> {
+            continuation<span class="hljs-operator">?</span>.resume()
+        }
+        continuation <span class="hljs-operator">=</span> <span class="hljs-literal">nil</span>
+        session.finishTasksAndInvalidate()
+    }
+}</pre></div>
+        
+      
+        
+        <p>This function starts the actual download of an individual file.
+It checks what already exists or has already been downloaded, then starts a chunk downloader to get the rest.</p>
+
+        
+          <div class='highlight'><pre><span class="hljs-keyword">func</span> <span class="hljs-title function_">downloadFile</span>(<span class="hljs-params">from</span> <span class="hljs-params">url</span>: <span class="hljs-type">URL</span>, <span class="hljs-params">to</span> <span class="hljs-params">destination</span>: <span class="hljs-type">URL</span>, <span class="hljs-params">fileName</span>: <span class="hljs-type">String</span>, <span class="hljs-params">onBytes</span>: <span class="hljs-keyword">@escaping</span> <span class="hljs-meta">@Sendable</span> (<span class="hljs-type">Int64</span>) -&gt; <span class="hljs-type">Void</span>)
+    <span class="hljs-keyword">async</span> <span class="hljs-keyword">throws</span>
+{
+    <span class="hljs-keyword">let</span> existing <span class="hljs-operator">=</span> (<span class="hljs-keyword">try?</span> <span class="hljs-type">FileManager</span>.default.attributesOfItem(atPath: destination.path)[.size] <span class="hljs-keyword">as?</span> <span class="hljs-type">NSNumber</span>)<span class="hljs-operator">?</span>.int64Value <span class="hljs-operator">??</span> <span class="hljs-number">0</span>
+    <span class="hljs-keyword">var</span> request <span class="hljs-operator">=</span> <span class="hljs-type">URLRequest</span>(url: url)
+    <span class="hljs-keyword">if</span> existing <span class="hljs-operator">&gt;</span> <span class="hljs-number">0</span> {
+        request.setValue(<span class="hljs-string">&quot;bytes=<span class="hljs-subst">\(existing)</span>-&quot;</span>, forHTTPHeaderField: <span class="hljs-string">&quot;Range&quot;</span>)
+    }
+    <span class="hljs-keyword">let</span> delegate <span class="hljs-operator">=</span> <span class="hljs-type">ChunkDownloader</span>(destination: destination, fileName: fileName, onBytes: onBytes)
+    <span class="hljs-keyword">let</span> session <span class="hljs-operator">=</span> <span class="hljs-type">URLSession</span>(configuration: .default, delegate: delegate, delegateQueue: <span class="hljs-literal">nil</span>)
+    <span class="hljs-keyword">let</span> task <span class="hljs-operator">=</span> session.dataTask(with: request)
+    <span class="hljs-keyword">try</span> <span class="hljs-keyword">await</span> withTaskCancellationHandler {
+        <span class="hljs-keyword">try</span> <span class="hljs-keyword">await</span> withCheckedThrowingContinuation { (continuation: <span class="hljs-type">CheckedContinuation</span>&lt;<span class="hljs-type">Void</span>, <span class="hljs-type">Error</span>&gt;) <span class="hljs-keyword">in</span>
+            delegate.continuation <span class="hljs-operator">=</span> continuation
+            task.resume()
+        }
+    } onCancel: {
+        task.cancel()
+    }
+}</pre></div>
+        
+      
+        
+        <p>A simple progress counter based on how much of the total data has been downloaded. It also calculates the download rate and time remaining.</p>
+
+        
+          <div class='highlight'><pre><span class="hljs-keyword">final</span> <span class="hljs-keyword">class</span> <span class="hljs-title class_">ProgressCounter</span>: @<span class="hljs-title class_">unchecked</span> <span class="hljs-title class_">Sendable</span> {
+    <span class="hljs-keyword">private</span> <span class="hljs-keyword">let</span> lock <span class="hljs-operator">=</span> <span class="hljs-type">NSLock</span>()
+    <span class="hljs-keyword">private</span> <span class="hljs-keyword">var</span> done: <span class="hljs-type">Int64</span>
+    <span class="hljs-keyword">private</span> <span class="hljs-keyword">var</span> lastReport <span class="hljs-operator">=</span> <span class="hljs-type">Date</span>.distantPast
+    <span class="hljs-keyword">private</span> <span class="hljs-keyword">var</span> windowStart <span class="hljs-operator">=</span> <span class="hljs-type">Date</span>()
+    <span class="hljs-keyword">private</span> <span class="hljs-keyword">var</span> windowBytes: <span class="hljs-type">Int64</span> <span class="hljs-operator">=</span> <span class="hljs-number">0</span>
+    <span class="hljs-keyword">private</span> <span class="hljs-keyword">var</span> rate: <span class="hljs-type">Double</span> <span class="hljs-operator">=</span> <span class="hljs-number">0</span>
+
+    <span class="hljs-keyword">init</span>(<span class="hljs-params">done</span>: <span class="hljs-type">Int64</span>) {
+        <span class="hljs-keyword">self</span>.done <span class="hljs-operator">=</span> done
+    }
+
+    <span class="hljs-keyword">func</span> <span class="hljs-title function_">add</span>(<span class="hljs-keyword">_</span> <span class="hljs-params">bytes</span>: <span class="hljs-type">Int64</span>) -&gt; (done: <span class="hljs-type">Int64</span>, rate: <span class="hljs-type">Double</span>, shouldReport: <span class="hljs-type">Bool</span>) {
+        lock.lock()
+        <span class="hljs-keyword">defer</span> { lock.unlock() }
+        done <span class="hljs-operator">+=</span> bytes
+        windowBytes <span class="hljs-operator">+=</span> bytes
+        <span class="hljs-keyword">let</span> now <span class="hljs-operator">=</span> <span class="hljs-type">Date</span>()
+        <span class="hljs-keyword">let</span> elapsed <span class="hljs-operator">=</span> now.timeIntervalSince(windowStart)
+        <span class="hljs-keyword">if</span> elapsed <span class="hljs-operator">&gt;=</span> <span class="hljs-number">2</span> {
+            rate <span class="hljs-operator">=</span> <span class="hljs-type">Double</span>(windowBytes) <span class="hljs-operator">/</span> elapsed
+            windowBytes <span class="hljs-operator">=</span> <span class="hljs-number">0</span>
+            windowStart <span class="hljs-operator">=</span> now
+        }
+        <span class="hljs-keyword">let</span> report <span class="hljs-operator">=</span> now.timeIntervalSince(lastReport) <span class="hljs-operator">&gt;=</span> <span class="hljs-number">0.25</span>
+        <span class="hljs-keyword">if</span> report {
+            lastReport <span class="hljs-operator">=</span> now
+        }
+        <span class="hljs-keyword">return</span> (done, rate, report)
+    }
+}</pre></div>
+        
+      
+        
+        <p>The location of the model on the disk, and whether or not to use the cache.</p>
+
+        
+          <div class='highlight'><pre><span class="hljs-keyword">public</span> <span class="hljs-keyword">func</span> <span class="hljs-title function_">installedModelDirectory</span>(<span class="hljs-keyword">_</span> <span class="hljs-params">tier</span>: <span class="hljs-type">ModelTier</span>) -&gt; <span class="hljs-type">URL</span>? {
+    <span class="hljs-keyword">let</span> folder <span class="hljs-operator">=</span> <span class="hljs-type">ModelStore</span>.modelsDirectory.appendingPathComponent(tier.folderName, isDirectory: <span class="hljs-literal">true</span>)
+    <span class="hljs-keyword">let</span> info <span class="hljs-operator">=</span> folder.appendingPathComponent(<span class="hljs-string">&quot;model_info.json&quot;</span>)
+    <span class="hljs-keyword">if</span> <span class="hljs-type">FileManager</span>.default.fileExists(atPath: info.path), (<span class="hljs-keyword">try?</span> <span class="hljs-type">ModelStore</span>.checkComplete(folder)) <span class="hljs-operator">!=</span> <span class="hljs-literal">nil</span> {
+        <span class="hljs-keyword">return</span> folder
+    }
+    <span class="hljs-keyword">if</span> <span class="hljs-type">UserDefaults</span>.standard.bool(forKey: <span class="hljs-string">&quot;ignoreHuggingFaceCache&quot;</span>) {
+        <span class="hljs-keyword">return</span> <span class="hljs-literal">nil</span>
+    }
+    <span class="hljs-keyword">if</span> <span class="hljs-keyword">let</span> cached <span class="hljs-operator">=</span> <span class="hljs-type">ModelStore</span>.huggingFaceCacheSnapshot(repo: tier.repo), (<span class="hljs-keyword">try?</span> <span class="hljs-type">ModelStore</span>.checkComplete(cached)) <span class="hljs-operator">!=</span> <span class="hljs-literal">nil</span> {
+        <span class="hljs-keyword">return</span> cached
+    }
+    <span class="hljs-keyword">return</span> <span class="hljs-literal">nil</span>
+}</pre></div>
+        
+      
+        
+        <p>If something is corrupt, this function removes it.</p>
+
+        
+          <div class='highlight'><pre><span class="hljs-keyword">func</span> <span class="hljs-title function_">removeDamagedFiles</span>(<span class="hljs-keyword">_</span> <span class="hljs-params">files</span>: [<span class="hljs-type">RemoteFile</span>], <span class="hljs-params">folder</span>: <span class="hljs-type">URL</span>) <span class="hljs-keyword">async</span> <span class="hljs-keyword">throws</span> {
+    <span class="hljs-keyword">for</span> file <span class="hljs-keyword">in</span> files {
+        <span class="hljs-keyword">try</span> <span class="hljs-type">Task</span>.checkCancellation()
+        <span class="hljs-keyword">let</span> url <span class="hljs-operator">=</span> folder.appendingPathComponent(file.path)
+        <span class="hljs-keyword">guard</span> <span class="hljs-type">FileManager</span>.default.fileExists(atPath: url.path) <span class="hljs-keyword">else</span> {
+            <span class="hljs-keyword">continue</span>
+        }
+        <span class="hljs-keyword">if</span> <span class="hljs-keyword">let</span> expected <span class="hljs-operator">=</span> file.sha256 {
+            <span class="hljs-keyword">let</span> actual <span class="hljs-operator">=</span> <span class="hljs-keyword">try</span> <span class="hljs-keyword">await</span> <span class="hljs-type">Task</span>.detached(priority: .userInitiated) { <span class="hljs-keyword">try</span> sha256OfFile(url) }.value
+            <span class="hljs-keyword">if</span> actual <span class="hljs-operator">==</span> expected {
+                <span class="hljs-keyword">continue</span>
+            }
+        }
+        <span class="hljs-keyword">try</span> <span class="hljs-type">FileManager</span>.default.removeItem(at: url)
+    }
+}</pre></div>
+        
+      
+        
+        <p>This function defines the download of an entire model (ie. the separate components of it). It keeps track of progress, saves to a local model folder, and keeps track of available disk space.</p>
+
+        
+          <div class='highlight'><pre><span class="hljs-keyword">public</span> <span class="hljs-keyword">func</span> <span class="hljs-title function_">downloadModel</span>(
+    <span class="hljs-keyword">_</span> <span class="hljs-params">tier</span>: <span class="hljs-type">ModelTier</span>, <span class="hljs-params">repair</span>: <span class="hljs-type">Bool</span> <span class="hljs-operator">=</span> <span class="hljs-literal">false</span>, <span class="hljs-params">onProgress</span>: <span class="hljs-keyword">@escaping</span> <span class="hljs-meta">@Sendable</span> (<span class="hljs-type">DownloadProgress</span>) -&gt; <span class="hljs-type">Void</span>
+) <span class="hljs-keyword">async</span> <span class="hljs-keyword">throws</span> -&gt; <span class="hljs-type">URL</span> {
+    <span class="hljs-keyword">let</span> (revision, files) <span class="hljs-operator">=</span> <span class="hljs-keyword">try</span> <span class="hljs-keyword">await</span> listRemoteModel(repo: tier.repo)
+    <span class="hljs-keyword">let</span> folder <span class="hljs-operator">=</span> <span class="hljs-type">ModelStore</span>.modelsDirectory.appendingPathComponent(tier.folderName, isDirectory: <span class="hljs-literal">true</span>)
+    <span class="hljs-keyword">try</span> <span class="hljs-type">FileManager</span>.default.createDirectory(at: folder, withIntermediateDirectories: <span class="hljs-literal">true</span>)
+
+    <span class="hljs-keyword">func</span> <span class="hljs-title function_">partialURL</span>(<span class="hljs-keyword">_</span> <span class="hljs-params">file</span>: <span class="hljs-type">RemoteFile</span>) -&gt; <span class="hljs-type">URL</span> { folder.appendingPathComponent(file.path <span class="hljs-operator">+</span> <span class="hljs-string">&quot;.part&quot;</span>) }
+    <span class="hljs-keyword">func</span> <span class="hljs-title function_">finalURL</span>(<span class="hljs-keyword">_</span> <span class="hljs-params">file</span>: <span class="hljs-type">RemoteFile</span>) -&gt; <span class="hljs-type">URL</span> { folder.appendingPathComponent(file.path) }
+    <span class="hljs-keyword">func</span> <span class="hljs-title function_">sizeOnDisk</span>(<span class="hljs-keyword">_</span> <span class="hljs-params">url</span>: <span class="hljs-type">URL</span>) -&gt; <span class="hljs-type">Int64</span> {
+        (<span class="hljs-keyword">try?</span> <span class="hljs-type">FileManager</span>.default.attributesOfItem(atPath: url.path)[.size] <span class="hljs-keyword">as?</span> <span class="hljs-type">NSNumber</span>)<span class="hljs-operator">?</span>.int64Value <span class="hljs-operator">??</span> <span class="hljs-number">0</span>
+    }
+
+    <span class="hljs-keyword">let</span> total <span class="hljs-operator">=</span> files.reduce(<span class="hljs-number">0</span>) { <span class="hljs-variable">$0</span> <span class="hljs-operator">+</span> <span class="hljs-variable">$1</span>.size }
+    <span class="hljs-keyword">if</span> repair {
+        onProgress(<span class="hljs-type">DownloadProgress</span>(bytesDone: <span class="hljs-number">0</span>, bytesTotal: total, currentFile: <span class="hljs-string">&quot;Checking files&quot;</span>, bytesPerSecond: <span class="hljs-number">0</span>))
+        <span class="hljs-keyword">try</span> <span class="hljs-keyword">await</span> removeDamagedFiles(files, folder: folder)
+    }
+    <span class="hljs-keyword">let</span> alreadyDone <span class="hljs-operator">=</span> files.reduce(<span class="hljs-type">Int64</span>(<span class="hljs-number">0</span>)) { sum, file <span class="hljs-keyword">in</span>
+        sum <span class="hljs-operator">+</span> (sizeOnDisk(finalURL(file)) <span class="hljs-operator">==</span> file.size <span class="hljs-operator">?</span> file.size : sizeOnDisk(partialURL(file)))
+    }
+    <span class="hljs-keyword">let</span> available <span class="hljs-operator">=</span> freeDiskBytes(at: folder)
+    <span class="hljs-keyword">let</span> needed <span class="hljs-operator">=</span> total <span class="hljs-operator">-</span> alreadyDone <span class="hljs-operator">+</span> <span class="hljs-number">500_000_000</span>
+    <span class="hljs-keyword">if</span> available <span class="hljs-operator">&lt;</span> needed {
+        <span class="hljs-keyword">throw</span> <span class="hljs-type">DownloadError</span>.notEnoughSpace(needed: needed, available: available)
+    }
+
+    <span class="hljs-keyword">let</span> counter <span class="hljs-operator">=</span> <span class="hljs-type">ProgressCounter</span>(done: alreadyDone)
+    onProgress(<span class="hljs-type">DownloadProgress</span>(bytesDone: alreadyDone, bytesTotal: total, currentFile: <span class="hljs-string">&quot;&quot;</span>, bytesPerSecond: <span class="hljs-number">0</span>))
+
+    <span class="hljs-keyword">for</span> file <span class="hljs-keyword">in</span> files.sorted(by: { <span class="hljs-variable">$0</span>.size <span class="hljs-operator">&lt;</span> <span class="hljs-variable">$1</span>.size }) {
+        <span class="hljs-keyword">try</span> <span class="hljs-type">Task</span>.checkCancellation()
+        <span class="hljs-keyword">let</span> target <span class="hljs-operator">=</span> finalURL(file)
+        <span class="hljs-keyword">if</span> sizeOnDisk(target) <span class="hljs-operator">==</span> file.size {
+            <span class="hljs-keyword">continue</span>
+        }
+        <span class="hljs-keyword">let</span> partial <span class="hljs-operator">=</span> partialURL(file)
+        <span class="hljs-keyword">if</span> sizeOnDisk(partial) <span class="hljs-operator">&gt;</span> file.size {
+            <span class="hljs-keyword">try</span> <span class="hljs-type">FileManager</span>.default.removeItem(at: partial)
+        }
+        <span class="hljs-keyword">if</span> sizeOnDisk(partial) <span class="hljs-operator">&lt;</span> file.size {
+            <span class="hljs-keyword">let</span> encodedPath <span class="hljs-operator">=</span> file.path.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) <span class="hljs-operator">??</span> file.path
+            <span class="hljs-keyword">let</span> url <span class="hljs-operator">=</span> <span class="hljs-type">URL</span>(string: <span class="hljs-string">&quot;https://huggingface.co/<span class="hljs-subst">\(tier.repo)</span>/resolve/<span class="hljs-subst">\(revision)</span>/<span class="hljs-subst">\(encodedPath)</span>&quot;</span>)<span class="hljs-operator">!</span>
+            <span class="hljs-keyword">try</span> <span class="hljs-keyword">await</span> downloadFile(from: url, to: partial, fileName: file.path) { bytes <span class="hljs-keyword">in</span>
+                <span class="hljs-keyword">let</span> state <span class="hljs-operator">=</span> counter.add(bytes)
+                <span class="hljs-keyword">if</span> state.shouldReport {
+                    onProgress(<span class="hljs-type">DownloadProgress</span>(
+                        bytesDone: state.done, bytesTotal: total, currentFile: file.path, bytesPerSecond: state.rate))
+                }
+            }
+        }
+        <span class="hljs-keyword">guard</span> sizeOnDisk(partial) <span class="hljs-operator">==</span> file.size <span class="hljs-keyword">else</span> {
+            <span class="hljs-keyword">throw</span> <span class="hljs-type">DownloadError</span>.sizeMismatch(file.path)
+        }
+        <span class="hljs-keyword">if</span> <span class="hljs-keyword">let</span> expected <span class="hljs-operator">=</span> file.sha256 {
+            onProgress(<span class="hljs-type">DownloadProgress</span>(
+                bytesDone: counter.add(<span class="hljs-number">0</span>).done, bytesTotal: total, currentFile: <span class="hljs-string">&quot;Checking <span class="hljs-subst">\(file.path)</span>&quot;</span>, bytesPerSecond: <span class="hljs-number">0</span>))
+            <span class="hljs-keyword">let</span> actual <span class="hljs-operator">=</span> <span class="hljs-keyword">try</span> <span class="hljs-keyword">await</span> <span class="hljs-type">Task</span>.detached(priority: .userInitiated) { <span class="hljs-keyword">try</span> sha256OfFile(partial) }.value
+            <span class="hljs-keyword">if</span> actual <span class="hljs-operator">!=</span> expected {
+                <span class="hljs-keyword">try?</span> <span class="hljs-type">FileManager</span>.default.removeItem(at: partial)
+                <span class="hljs-keyword">throw</span> <span class="hljs-type">DownloadError</span>.checksumMismatch(file.path)
+            }
+        }
+        <span class="hljs-keyword">if</span> <span class="hljs-type">FileManager</span>.default.fileExists(atPath: target.path) {
+            <span class="hljs-keyword">try</span> <span class="hljs-type">FileManager</span>.default.removeItem(at: target)
+        }
+        <span class="hljs-keyword">try</span> <span class="hljs-type">FileManager</span>.default.moveItem(at: partial, to: target)
+    }
+
+    <span class="hljs-keyword">try</span> <span class="hljs-type">ModelStore</span>.fixConfigInPlace(folder)
+    <span class="hljs-keyword">let</span> info <span class="hljs-operator">=</span> <span class="hljs-type">ModelInfo</span>(repo: tier.repo, revision: revision, files: files, installed: <span class="hljs-type">Date</span>())
+    <span class="hljs-keyword">let</span> encoder <span class="hljs-operator">=</span> <span class="hljs-type">JSONEncoder</span>()
+    encoder.outputFormatting <span class="hljs-operator">=</span> [.prettyPrinted, .sortedKeys]
+    encoder.dateEncodingStrategy <span class="hljs-operator">=</span> .iso8601
+    <span class="hljs-keyword">try</span> encoder.encode(info).write(to: folder.appendingPathComponent(<span class="hljs-string">&quot;model_info.json&quot;</span>), options: .atomic)
+    onProgress(<span class="hljs-type">DownloadProgress</span>(bytesDone: total, bytesTotal: total, currentFile: <span class="hljs-string">&quot;&quot;</span>, bytesPerSecond: <span class="hljs-number">0</span>))
+    <span class="hljs-keyword">return</span> folder
+}</pre></div>
+        
+      
+      <div class="fleur">h</div>
+    </div>
+  </div>
+</body>
+</html>

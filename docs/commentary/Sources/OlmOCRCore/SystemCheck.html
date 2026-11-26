@@ -1,0 +1,441 @@
+<!DOCTYPE html>
+
+<html>
+<head>
+  <title>SystemCheck.swift</title>
+  <meta http-equiv="content-type" content="text/html; charset=UTF-8">
+  <link rel="stylesheet" media="all" href="public/stylesheets/normalize.css" />
+  <link rel="stylesheet" media="all" href="../../docco.css" />
+</head>
+<body>
+  <div class="container">
+    <div class="page">
+
+      <div class="header">
+        
+          <h1>SystemCheck.swift</h1>
+        
+
+        
+          <div class="toc">
+            <h3>Table of Contents</h3>
+            <ol>
+              
+                
+                <li>
+                  <a class="source" href="DocumentJob.html">
+                    Sources/OlmOCRCore/DocumentJob.swift
+                  </a>
+                </li>
+              
+                
+                <li>
+                  <a class="source" href="Exporters.html">
+                    Sources/OlmOCRCore/Exporters.swift
+                  </a>
+                </li>
+              
+                
+                <li>
+                  <a class="source" href="ModelDownloader.html">
+                    Sources/OlmOCRCore/ModelDownloader.swift
+                  </a>
+                </li>
+              
+                
+                <li>
+                  <a class="source" href="ModelStore.html">
+                    Sources/OlmOCRCore/ModelStore.swift
+                  </a>
+                </li>
+              
+                
+                <li>
+                  <a class="source" href="OCREngine.html">
+                    Sources/OlmOCRCore/OCREngine.swift
+                  </a>
+                </li>
+              
+                
+                <li>
+                  <a class="source" href="PageSource.html">
+                    Sources/OlmOCRCore/PageSource.swift
+                  </a>
+                </li>
+              
+                
+                <li>
+                  <a class="source" href="SystemCheck.html">
+                    Sources/OlmOCRCore/SystemCheck.swift
+                  </a>
+                </li>
+              
+                
+                <li>
+                  <a class="source" href="../olmocr/main.html">
+                    Sources/olmocr/main.swift
+                  </a>
+                </li>
+              
+            </ol>
+          </div>
+        
+      </div>
+
+      
+        
+        
+        
+          <div class='highlight'><pre><span class="hljs-comment">/* Declaration: Code generated using Anthropic Claude (Opus 5.5)*/</span></pre></div>
+        
+      
+        
+        <h3 id="code-commentary">Code Commentary</h3>
+<p>All commentary below was written manually by <a href="https://warwick.ac.uk/fac/arts/history/people/staff_index/poskett/">James Poskett</a> (University of Warwick).</p>
+<p>This commentary is for <a href="https://github.com/poskett/Slow-Reading-OCR/releases/tag/v1.1.1">v1.1.1</a>.</p>
+<h3 id="overview">Overview</h3>
+<p>This script is for checking everything is in order at the system level, particularly hardware requirements and free memory.</p>
+<h3 id="import-libraries">Import Libraries</h3>
+<p>Alongside core librart Foundation, to read and write to disk. Also IOKit and Metal so we can get system information and check with MLX.</p>
+
+        
+          <div class='highlight'><pre><span class="hljs-keyword">import</span> Foundation
+<span class="hljs-keyword">import</span> IOKit.ps
+<span class="hljs-keyword">import</span> Metal</pre></div>
+        
+      
+        
+        <h3 id="variables">Variables</h3>
+<p>Define an enum with the two model tiers, 8 or 4 bit.</p>
+
+        
+          <div class='highlight'><pre><span class="hljs-keyword">public</span> <span class="hljs-keyword">enum</span> <span class="hljs-title class_">ModelTier</span>: <span class="hljs-title class_">String</span>, <span class="hljs-title class_">Codable</span>, <span class="hljs-title class_">CaseIterable</span>, <span class="hljs-title class_">Sendable</span> {
+    <span class="hljs-keyword">case</span> full
+    <span class="hljs-keyword">case</span> compact
+
+    <span class="hljs-keyword">public</span> <span class="hljs-keyword">var</span> repo: <span class="hljs-type">String</span> {
+        <span class="hljs-keyword">switch</span> <span class="hljs-keyword">self</span> {
+        <span class="hljs-keyword">case</span> .full: <span class="hljs-keyword">return</span> <span class="hljs-string">&quot;mlx-community/olmOCR-2-7B-1025-8bit&quot;</span>
+        <span class="hljs-keyword">case</span> .compact: <span class="hljs-keyword">return</span> <span class="hljs-string">&quot;mlx-community/olmOCR-2-7B-1025-4bit&quot;</span>
+        }
+    }
+
+    <span class="hljs-keyword">public</span> <span class="hljs-keyword">var</span> folderName: <span class="hljs-type">String</span> {
+        <span class="hljs-type">String</span>(repo.split(separator: <span class="hljs-string">&quot;/&quot;</span>).last<span class="hljs-operator">!</span>)
+    }
+
+    <span class="hljs-keyword">public</span> <span class="hljs-keyword">var</span> title: <span class="hljs-type">String</span> {
+        <span class="hljs-keyword">switch</span> <span class="hljs-keyword">self</span> {
+        <span class="hljs-keyword">case</span> .full: <span class="hljs-keyword">return</span> <span class="hljs-string">&quot;Full&quot;</span>
+        <span class="hljs-keyword">case</span> .compact: <span class="hljs-keyword">return</span> <span class="hljs-string">&quot;Compact&quot;</span>
+        }
+    }
+
+    <span class="hljs-keyword">public</span> <span class="hljs-keyword">var</span> summary: <span class="hljs-type">String</span> {
+        <span class="hljs-keyword">switch</span> <span class="hljs-keyword">self</span> {
+        <span class="hljs-keyword">case</span> .full:
+            <span class="hljs-keyword">return</span> <span class="hljs-string">&quot;Best accuracy&quot;</span>
+        <span class="hljs-keyword">case</span> .compact:
+            <span class="hljs-keyword">return</span> <span class="hljs-string">&quot;Smaller, faster&quot;</span>
+        }
+    }</pre></div>
+        
+      
+        
+        <p>Define the rough download and memory requirements.</p>
+
+        
+          <div class='highlight'><pre>    <span class="hljs-keyword">public</span> <span class="hljs-keyword">var</span> approximateDownloadBytes: <span class="hljs-type">Int64</span> {
+        <span class="hljs-keyword">switch</span> <span class="hljs-keyword">self</span> {
+        <span class="hljs-keyword">case</span> .full: <span class="hljs-keyword">return</span> <span class="hljs-number">9_400_000_000</span>
+        <span class="hljs-keyword">case</span> .compact: <span class="hljs-keyword">return</span> <span class="hljs-number">5_700_000_000</span>
+        }
+    }
+
+    <span class="hljs-keyword">public</span> <span class="hljs-keyword">var</span> peakMemoryBytes: <span class="hljs-type">Int64</span> {
+        <span class="hljs-keyword">switch</span> <span class="hljs-keyword">self</span> {
+        <span class="hljs-keyword">case</span> .full: <span class="hljs-keyword">return</span> <span class="hljs-number">11_500_000_000</span>
+        <span class="hljs-keyword">case</span> .compact: <span class="hljs-keyword">return</span> <span class="hljs-number">7_700_000_000</span>
+        }
+    }</pre></div>
+        
+      
+        
+        <p>We need a decent amount of memory, this is the required for it to work.</p>
+
+        
+          <div class='highlight'><pre>    <span class="hljs-keyword">public</span> <span class="hljs-keyword">var</span> requiredWorkingSetBytes: <span class="hljs-type">Int64</span> {
+        peakMemoryBytes <span class="hljs-operator">+</span> <span class="hljs-number">1_000_000_000</span>
+    }
+}</pre></div>
+        
+      
+        
+        <p>So assume that if less than 9GB of available memory, we’ll need the compact model.</p>
+
+        
+          <div class='highlight'><pre><span class="hljs-keyword">let</span> compactRecommendedBelowBytes: <span class="hljs-type">Int64</span> <span class="hljs-operator">=</span> <span class="hljs-number">9</span> <span class="hljs-operator">*</span> <span class="hljs-number">1_073_741_824</span></pre></div>
+        
+      
+        
+        <p>Another enum for basic system information, here the power source.</p>
+
+        
+          <div class='highlight'><pre><span class="hljs-keyword">public</span> <span class="hljs-keyword">enum</span> <span class="hljs-title class_">PowerSource</span>: <span class="hljs-title class_">String</span>, <span class="hljs-title class_">Sendable</span> {
+    <span class="hljs-keyword">case</span> mains
+    <span class="hljs-keyword">case</span> battery
+    <span class="hljs-keyword">case</span> unknown
+}</pre></div>
+        
+      
+        
+        <h3 id="system-report">System Report</h3>
+<p>Define a struct to hold the full system report about the Mac.</p>
+
+        
+          <div class='highlight'><pre><span class="hljs-keyword">public</span> <span class="hljs-keyword">struct</span> <span class="hljs-title class_">SystemReport</span>: <span class="hljs-title class_">Sendable</span> {
+    <span class="hljs-keyword">public</span> <span class="hljs-keyword">var</span> chip: <span class="hljs-type">String</span>
+    <span class="hljs-keyword">public</span> <span class="hljs-keyword">var</span> isAppleSilicon: <span class="hljs-type">Bool</span>
+    <span class="hljs-keyword">public</span> <span class="hljs-keyword">var</span> isTranslated: <span class="hljs-type">Bool</span>
+    <span class="hljs-keyword">public</span> <span class="hljs-keyword">var</span> physicalMemory: <span class="hljs-type">Int64</span>
+    <span class="hljs-keyword">public</span> <span class="hljs-keyword">var</span> gpuWorkingSetLimit: <span class="hljs-type">Int64</span>
+    <span class="hljs-keyword">public</span> <span class="hljs-keyword">var</span> availableMemory: <span class="hljs-type">Int64</span>
+    <span class="hljs-keyword">public</span> <span class="hljs-keyword">var</span> freeDiskSpace: <span class="hljs-type">Int64</span>
+    <span class="hljs-keyword">public</span> <span class="hljs-keyword">var</span> macOSVersion: <span class="hljs-type">String</span>
+    <span class="hljs-keyword">public</span> <span class="hljs-keyword">var</span> thermalState: <span class="hljs-type">ProcessInfo</span>.<span class="hljs-type">ThermalState</span>
+    <span class="hljs-keyword">public</span> <span class="hljs-keyword">var</span> powerSource: <span class="hljs-type">PowerSource</span></pre></div>
+        
+      
+        
+        <p>Decide the recommended tier of model based on available memory.</p>
+
+        
+          <div class='highlight'><pre>    <span class="hljs-keyword">public</span> <span class="hljs-keyword">var</span> recommendedTier: <span class="hljs-type">ModelTier</span>? {
+        <span class="hljs-keyword">if</span> availableMemory <span class="hljs-operator">&lt;</span> compactRecommendedBelowBytes <span class="hljs-operator">&amp;&amp;</span> supportedTiers.contains(.compact) {
+            <span class="hljs-keyword">return</span> .compact
+        }
+        <span class="hljs-keyword">return</span> supportedTiers.first
+    }
+    <span class="hljs-keyword">public</span> <span class="hljs-keyword">var</span> supportedTiers: [<span class="hljs-type">ModelTier</span>] {
+        <span class="hljs-keyword">guard</span> isAppleSilicon <span class="hljs-keyword">else</span> {
+            <span class="hljs-keyword">return</span> []
+        }
+        <span class="hljs-keyword">return</span> <span class="hljs-type">ModelTier</span>.allCases.filter { gpuWorkingSetLimit <span class="hljs-operator">&gt;=</span> <span class="hljs-variable">$0</span>.requiredWorkingSetBytes }
+    }</pre></div>
+        
+      
+        
+        <p>Define variables and errors if not running on Apple Silicon or don’t have enough memory.</p>
+
+        
+          <div class='highlight'><pre>    <span class="hljs-keyword">public</span> <span class="hljs-keyword">var</span> blockingProblem: <span class="hljs-type">String</span>? {
+        <span class="hljs-keyword">if</span> <span class="hljs-operator">!</span>isAppleSilicon {
+            <span class="hljs-keyword">return</span> <span class="hljs-string">&quot;Slow Reading needs a Mac with Apple silicon (M1 or later). This Mac has an Intel processor.&quot;</span>
+        }
+        <span class="hljs-keyword">if</span> isTranslated {
+            <span class="hljs-keyword">return</span> <span class="hljs-string">&quot;Slow Reading is running under Rosetta. Quit it, choose the app in Finder, select File &gt; Get Info, and untick “Open using Rosetta”.&quot;</span>
+        }
+        <span class="hljs-keyword">if</span> supportedTiers.isEmpty {
+            <span class="hljs-keyword">return</span> <span class="hljs-string">&quot;This Mac has <span class="hljs-subst">\(formatBytes(physicalMemory))</span> of memory. Slow Reading needs at least 16 GB to run the model.&quot;</span>
+        }
+        <span class="hljs-keyword">return</span> <span class="hljs-literal">nil</span>
+    }</pre></div>
+        
+      
+        
+        <p>Define warnings if memory is getting short, on battery, or computer getting hot.</p>
+
+        
+          <div class='highlight'><pre>    <span class="hljs-keyword">public</span> <span class="hljs-keyword">func</span> <span class="hljs-title function_">warnings</span>(<span class="hljs-params">for</span> <span class="hljs-params">tier</span>: <span class="hljs-type">ModelTier</span>) -&gt; [<span class="hljs-type">String</span>] {
+        <span class="hljs-keyword">var</span> messages: [<span class="hljs-type">String</span>] <span class="hljs-operator">=</span> []
+        <span class="hljs-keyword">if</span> availableMemory <span class="hljs-operator">&lt;</span> tier.peakMemoryBytes {
+            messages.append(
+                <span class="hljs-string">&quot;Only <span class="hljs-subst">\(formatBytes(availableMemory))</span> of memory is free right now. Closing other apps (especially web browsers) will make OCR faster and more stable.&quot;</span>)
+        }
+        <span class="hljs-keyword">if</span> thermalState <span class="hljs-operator">==</span> .serious <span class="hljs-operator">||</span> thermalState <span class="hljs-operator">==</span> .critical {
+            messages.append(<span class="hljs-string">&quot;This Mac is hot. OCR will run slowly until it cools down.&quot;</span>)
+        }
+        <span class="hljs-keyword">if</span> powerSource <span class="hljs-operator">==</span> .battery {
+            messages.append(<span class="hljs-string">&quot;This Mac is on battery. OCR uses a lot of power, so plug in for long jobs.&quot;</span>)
+        }
+        <span class="hljs-keyword">return</span> messages
+    }
+
+    <span class="hljs-keyword">public</span> <span class="hljs-keyword">var</span> diagnosticText: <span class="hljs-type">String</span> {
+        <span class="hljs-string">&quot;&quot;&quot;
+        Chip: <span class="hljs-subst">\(chip)</span>
+        Apple silicon: <span class="hljs-subst">\(isAppleSilicon)</span><span class="hljs-subst">\(isTranslated <span class="hljs-operator">?</span> <span class="hljs-string">&quot; (running under Rosetta)&quot;</span> : <span class="hljs-string">&quot;&quot;</span>)</span>
+        Memory: <span class="hljs-subst">\(formatBytes(physicalMemory))</span> (GPU limit <span class="hljs-subst">\(formatBytes(gpuWorkingSetLimit))</span>, <span class="hljs-subst">\(formatBytes(availableMemory))</span> free now)
+        Free disk space: <span class="hljs-subst">\(formatBytes(freeDiskSpace))</span>
+        macOS: <span class="hljs-subst">\(macOSVersion)</span>
+        Thermal state: <span class="hljs-subst">\(thermalStateName(thermalState))</span>
+        Power: <span class="hljs-subst">\(powerSource.rawValue)</span>
+        Recommended model: <span class="hljs-subst">\(recommendedTier<span class="hljs-operator">?</span>.folderName <span class="hljs-operator">??</span> <span class="hljs-string">&quot;none&quot;</span>)</span>
+        &quot;&quot;&quot;</span>
+    }
+}
+
+<span class="hljs-keyword">public</span> <span class="hljs-keyword">func</span> <span class="hljs-title function_">formatBytes</span>(<span class="hljs-keyword">_</span> <span class="hljs-params">bytes</span>: <span class="hljs-type">Int64</span>) -&gt; <span class="hljs-type">String</span> {
+    <span class="hljs-type">ByteCountFormatter</span>.string(fromByteCount: bytes, countStyle: .memory)
+}</pre></div>
+        
+      
+        
+        <p>Define the thermal states as simple names.</p>
+
+        
+          <div class='highlight'><pre><span class="hljs-keyword">func</span> <span class="hljs-title function_">thermalStateName</span>(<span class="hljs-keyword">_</span> <span class="hljs-params">state</span>: <span class="hljs-type">ProcessInfo</span>.<span class="hljs-type">ThermalState</span>) -&gt; <span class="hljs-type">String</span> {
+    <span class="hljs-keyword">switch</span> state {
+    <span class="hljs-keyword">case</span> .nominal: <span class="hljs-keyword">return</span> <span class="hljs-string">&quot;normal&quot;</span>
+    <span class="hljs-keyword">case</span> .fair: <span class="hljs-keyword">return</span> <span class="hljs-string">&quot;warm&quot;</span>
+    <span class="hljs-keyword">case</span> .serious: <span class="hljs-keyword">return</span> <span class="hljs-string">&quot;hot&quot;</span>
+    <span class="hljs-keyword">case</span> .critical: <span class="hljs-keyword">return</span> <span class="hljs-string">&quot;critical&quot;</span>
+    <span class="hljs-keyword">@unknown</span> <span class="hljs-keyword">default</span>: <span class="hljs-keyword">return</span> <span class="hljs-string">&quot;unknown&quot;</span>
+    }
+}</pre></div>
+        
+      
+        
+        <p>Functions to read information from the kernel.</p>
+
+        
+          <div class='highlight'><pre><span class="hljs-keyword">func</span> <span class="hljs-title function_">sysctlString</span>(<span class="hljs-keyword">_</span> <span class="hljs-params">name</span>: <span class="hljs-type">String</span>) -&gt; <span class="hljs-type">String</span>? {
+    <span class="hljs-keyword">var</span> size <span class="hljs-operator">=</span> <span class="hljs-number">0</span>
+    <span class="hljs-keyword">guard</span> sysctlbyname(name, <span class="hljs-literal">nil</span>, <span class="hljs-operator">&amp;</span>size, <span class="hljs-literal">nil</span>, <span class="hljs-number">0</span>) <span class="hljs-operator">==</span> <span class="hljs-number">0</span>, size <span class="hljs-operator">&gt;</span> <span class="hljs-number">0</span> <span class="hljs-keyword">else</span> {
+        <span class="hljs-keyword">return</span> <span class="hljs-literal">nil</span>
+    }
+    <span class="hljs-keyword">var</span> buffer <span class="hljs-operator">=</span> [<span class="hljs-type">CChar</span>](repeating: <span class="hljs-number">0</span>, count: size)
+    <span class="hljs-keyword">guard</span> sysctlbyname(name, <span class="hljs-operator">&amp;</span>buffer, <span class="hljs-operator">&amp;</span>size, <span class="hljs-literal">nil</span>, <span class="hljs-number">0</span>) <span class="hljs-operator">==</span> <span class="hljs-number">0</span> <span class="hljs-keyword">else</span> {
+        <span class="hljs-keyword">return</span> <span class="hljs-literal">nil</span>
+    }
+    <span class="hljs-keyword">return</span> <span class="hljs-type">String</span>(cString: buffer)
+}
+
+<span class="hljs-keyword">func</span> <span class="hljs-title function_">sysctlInt</span>(<span class="hljs-keyword">_</span> <span class="hljs-params">name</span>: <span class="hljs-type">String</span>) -&gt; <span class="hljs-type">Int</span>? {
+    <span class="hljs-keyword">var</span> value: <span class="hljs-type">Int32</span> <span class="hljs-operator">=</span> <span class="hljs-number">0</span>
+    <span class="hljs-keyword">var</span> size <span class="hljs-operator">=</span> <span class="hljs-type">MemoryLayout</span>&lt;<span class="hljs-type">Int32</span>&gt;.size
+    <span class="hljs-keyword">guard</span> sysctlbyname(name, <span class="hljs-operator">&amp;</span>value, <span class="hljs-operator">&amp;</span>size, <span class="hljs-literal">nil</span>, <span class="hljs-number">0</span>) <span class="hljs-operator">==</span> <span class="hljs-number">0</span> <span class="hljs-keyword">else</span> {
+        <span class="hljs-keyword">return</span> <span class="hljs-literal">nil</span>
+    }
+    <span class="hljs-keyword">return</span> <span class="hljs-type">Int</span>(value)
+}</pre></div>
+        
+      
+        
+        <h3 id="memory">Memory</h3>
+<p>Calculate an estimate of the available memory.</p>
+
+        
+          <div class='highlight'><pre><span class="hljs-keyword">public</span> <span class="hljs-keyword">func</span> <span class="hljs-title function_">availableMemoryBytes</span>() -&gt; <span class="hljs-type">Int64</span> {
+    <span class="hljs-keyword">var</span> stats <span class="hljs-operator">=</span> vm_statistics64()
+    <span class="hljs-keyword">var</span> count <span class="hljs-operator">=</span> mach_msg_type_number_t(<span class="hljs-type">MemoryLayout</span>&lt;vm_statistics64&gt;.size <span class="hljs-operator">/</span> <span class="hljs-type">MemoryLayout</span>&lt;integer_t&gt;.size)
+    <span class="hljs-keyword">let</span> result <span class="hljs-operator">=</span> <span class="hljs-built_in">withUnsafeMutablePointer</span>(to: <span class="hljs-operator">&amp;</span>stats) {
+        <span class="hljs-variable">$0</span>.withMemoryRebound(to: integer_t.<span class="hljs-keyword">self</span>, capacity: <span class="hljs-type">Int</span>(count)) {
+            host_statistics64(mach_host_self(), <span class="hljs-type">HOST_VM_INFO64</span>, <span class="hljs-variable">$0</span>, <span class="hljs-operator">&amp;</span>count)
+        }
+    }
+    <span class="hljs-keyword">guard</span> result <span class="hljs-operator">==</span> <span class="hljs-type">KERN_SUCCESS</span> <span class="hljs-keyword">else</span> {
+        <span class="hljs-keyword">return</span> <span class="hljs-number">0</span>
+    }
+    <span class="hljs-keyword">var</span> pageSize: vm_size_t <span class="hljs-operator">=</span> <span class="hljs-number">0</span>
+    host_page_size(mach_host_self(), <span class="hljs-operator">&amp;</span>pageSize)
+    <span class="hljs-keyword">let</span> pages <span class="hljs-operator">=</span> <span class="hljs-type">Int64</span>(stats.free_count) <span class="hljs-operator">+</span> <span class="hljs-type">Int64</span>(stats.inactive_count) <span class="hljs-operator">+</span> <span class="hljs-type">Int64</span>(stats.purgeable_count)
+        <span class="hljs-operator">+</span> <span class="hljs-type">Int64</span>(stats.speculative_count)
+    <span class="hljs-keyword">return</span> pages <span class="hljs-operator">*</span> <span class="hljs-type">Int64</span>(pageSize)
+}</pre></div>
+        
+      
+        
+        <p>Calculate the actual free space on disk.</p>
+
+        
+          <div class='highlight'><pre><span class="hljs-keyword">public</span> <span class="hljs-keyword">func</span> <span class="hljs-title function_">freeDiskBytes</span>(<span class="hljs-params">at</span> <span class="hljs-params">url</span>: <span class="hljs-type">URL</span>) -&gt; <span class="hljs-type">Int64</span> {
+    <span class="hljs-keyword">var</span> probe <span class="hljs-operator">=</span> url
+    <span class="hljs-keyword">while</span> <span class="hljs-operator">!</span><span class="hljs-type">FileManager</span>.default.fileExists(atPath: probe.path) <span class="hljs-operator">&amp;&amp;</span> probe.pathComponents.count <span class="hljs-operator">&gt;</span> <span class="hljs-number">1</span> {
+        probe <span class="hljs-operator">=</span> probe.deletingLastPathComponent()
+    }
+    <span class="hljs-keyword">let</span> values <span class="hljs-operator">=</span> <span class="hljs-keyword">try?</span> probe.resourceValues(forKeys: [.volumeAvailableCapacityForImportantUsageKey])
+    <span class="hljs-keyword">return</span> values<span class="hljs-operator">?</span>.volumeAvailableCapacityForImportantUsage <span class="hljs-operator">??</span> <span class="hljs-number">0</span>
+}</pre></div>
+        
+      
+        
+        <p>Check the power source</p>
+
+        
+          <div class='highlight'><pre><span class="hljs-keyword">public</span> <span class="hljs-keyword">func</span> <span class="hljs-title function_">currentPowerSource</span>() -&gt; <span class="hljs-type">PowerSource</span> {
+    <span class="hljs-keyword">guard</span> <span class="hljs-keyword">let</span> info <span class="hljs-operator">=</span> <span class="hljs-type">IOPSCopyPowerSourcesInfo</span>()<span class="hljs-operator">?</span>.takeRetainedValue(),
+        <span class="hljs-keyword">let</span> type <span class="hljs-operator">=</span> <span class="hljs-type">IOPSGetProvidingPowerSourceType</span>(info)<span class="hljs-operator">?</span>.takeUnretainedValue() <span class="hljs-keyword">as</span> <span class="hljs-type">String</span>?
+    <span class="hljs-keyword">else</span> {
+        <span class="hljs-keyword">return</span> .unknown
+    }
+    <span class="hljs-keyword">if</span> type <span class="hljs-operator">==</span> kIOPMACPowerKey {
+        <span class="hljs-keyword">return</span> .mains
+    }
+    <span class="hljs-keyword">if</span> type <span class="hljs-operator">==</span> kIOPMBatteryPowerKey {
+        <span class="hljs-keyword">return</span> .battery
+    }
+    <span class="hljs-keyword">return</span> .unknown
+}</pre></div>
+        
+      
+        
+        <p>This function and gpuWorkingSetBytes estimate how much of the memory could be available for use by the model. Here we just estimate 2/3 if the rest is used for something else.</p>
+
+        
+          <div class='highlight'><pre><span class="hljs-keyword">func</span> <span class="hljs-title function_">simulatedGigabytes</span>(<span class="hljs-keyword">_</span> <span class="hljs-params">name</span>: <span class="hljs-type">String</span>) -&gt; <span class="hljs-type">Int64</span>? {
+    <span class="hljs-keyword">guard</span> <span class="hljs-keyword">let</span> text <span class="hljs-operator">=</span> <span class="hljs-type">ProcessInfo</span>.processInfo.environment[name], <span class="hljs-keyword">let</span> value <span class="hljs-operator">=</span> <span class="hljs-type">Double</span>(text) <span class="hljs-keyword">else</span> {
+        <span class="hljs-keyword">return</span> <span class="hljs-literal">nil</span>
+    }
+    <span class="hljs-keyword">return</span> <span class="hljs-type">Int64</span>(value <span class="hljs-operator">*</span> <span class="hljs-number">1_073_741_824</span>)
+}
+
+<span class="hljs-keyword">public</span> <span class="hljs-keyword">func</span> <span class="hljs-title function_">gpuWorkingSetBytes</span>() -&gt; <span class="hljs-type">Int64</span> {
+    <span class="hljs-keyword">if</span> <span class="hljs-keyword">let</span> simulated <span class="hljs-operator">=</span> simulatedGigabytes(<span class="hljs-string">&quot;SLOWREADING_SIMULATE_RAM_GB&quot;</span>) {
+        <span class="hljs-keyword">return</span> simulated <span class="hljs-operator">*</span> <span class="hljs-number">2</span> <span class="hljs-operator">/</span> <span class="hljs-number">3</span>
+    }
+    <span class="hljs-keyword">return</span> <span class="hljs-type">Int64</span>(<span class="hljs-type">MTLCreateSystemDefaultDevice</span>()<span class="hljs-operator">?</span>.recommendedMaxWorkingSetSize <span class="hljs-operator">??</span> <span class="hljs-number">0</span>)
+}</pre></div>
+        
+      
+        
+        <p>This similarly estimates how much we can hold in memory cache for MLX.</p>
+
+        
+          <div class='highlight'><pre><span class="hljs-keyword">public</span> <span class="hljs-keyword">func</span> <span class="hljs-title function_">memoryCacheLimit</span>(<span class="hljs-params">for</span> <span class="hljs-params">modelName</span>: <span class="hljs-type">String</span>) -&gt; <span class="hljs-type">Int</span> {
+    <span class="hljs-keyword">if</span> <span class="hljs-keyword">let</span> <span class="hljs-keyword">override</span> <span class="hljs-operator">=</span> <span class="hljs-type">ProcessInfo</span>.processInfo.environment[<span class="hljs-string">&quot;SLOWREADING_CACHE_LIMIT_MB&quot;</span>], <span class="hljs-keyword">let</span> megabytes <span class="hljs-operator">=</span> <span class="hljs-type">Int</span>(<span class="hljs-keyword">override</span>) {
+        <span class="hljs-keyword">return</span> megabytes <span class="hljs-operator">*</span> <span class="hljs-number">1_048_576</span>
+    }
+    <span class="hljs-keyword">let</span> tier: <span class="hljs-type">ModelTier</span> <span class="hljs-operator">=</span> modelName.contains(<span class="hljs-string">&quot;8bit&quot;</span>) <span class="hljs-operator">?</span> .full : .compact
+    <span class="hljs-keyword">let</span> headroom <span class="hljs-operator">=</span> gpuWorkingSetBytes() <span class="hljs-operator">-</span> tier.peakMemoryBytes
+    <span class="hljs-keyword">let</span> limit <span class="hljs-operator">=</span> <span class="hljs-built_in">min</span>(<span class="hljs-built_in">max</span>(headroom <span class="hljs-operator">/</span> <span class="hljs-number">4</span>, <span class="hljs-number">256_000_000</span>), <span class="hljs-number">4_000_000_000</span>)
+    <span class="hljs-keyword">return</span> <span class="hljs-type">Int</span>(limit)
+}</pre></div>
+        
+      
+        
+        <p>Actually check the system and return everything as a SystemReport as defined earlier.</p>
+
+        
+          <div class='highlight'><pre><span class="hljs-keyword">public</span> <span class="hljs-keyword">func</span> <span class="hljs-title function_">checkSystem</span>() -&gt; <span class="hljs-type">SystemReport</span> {
+    <span class="hljs-keyword">let</span> version <span class="hljs-operator">=</span> <span class="hljs-type">ProcessInfo</span>.processInfo.operatingSystemVersion
+    <span class="hljs-keyword">return</span> <span class="hljs-type">SystemReport</span>(
+        chip: sysctlString(<span class="hljs-string">&quot;machdep.cpu.brand_string&quot;</span>) <span class="hljs-operator">??</span> <span class="hljs-string">&quot;unknown&quot;</span>,
+        isAppleSilicon: sysctlInt(<span class="hljs-string">&quot;hw.optional.arm64&quot;</span>) <span class="hljs-operator">==</span> <span class="hljs-number">1</span>,
+        isTranslated: sysctlInt(<span class="hljs-string">&quot;sysctl.proc_translated&quot;</span>) <span class="hljs-operator">==</span> <span class="hljs-number">1</span>,
+        physicalMemory: simulatedGigabytes(<span class="hljs-string">&quot;SLOWREADING_SIMULATE_RAM_GB&quot;</span>) <span class="hljs-operator">??</span> <span class="hljs-type">Int64</span>(<span class="hljs-type">ProcessInfo</span>.processInfo.physicalMemory),
+        gpuWorkingSetLimit: gpuWorkingSetBytes(),
+        availableMemory: simulatedGigabytes(<span class="hljs-string">&quot;SLOWREADING_SIMULATE_FREE_GB&quot;</span>) <span class="hljs-operator">??</span> availableMemoryBytes(),
+        freeDiskSpace: freeDiskBytes(at: <span class="hljs-type">ModelStore</span>.modelsDirectory),
+        macOSVersion: <span class="hljs-string">&quot;<span class="hljs-subst">\(version.majorVersion)</span>.<span class="hljs-subst">\(version.minorVersion)</span>.<span class="hljs-subst">\(version.patchVersion)</span>&quot;</span>,
+        thermalState: <span class="hljs-type">ProcessInfo</span>.processInfo.thermalState,
+        powerSource: currentPowerSource()
+    )
+}</pre></div>
+        
+      
+      <div class="fleur">h</div>
+    </div>
+  </div>
+</body>
+</html>
